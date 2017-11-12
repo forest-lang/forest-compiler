@@ -1,6 +1,10 @@
 module Lib
-    ( printWasm, printExpression, parseExpressionFromString, Expression(..), Operator(..)
-    ) where
+  ( printWasm
+  , printExpression
+  , parseExpressionFromString
+  , Expression(..)
+  , Operator(..)
+  ) where
 
 import Data.Char
 import Data.Functor.Identity
@@ -27,7 +31,8 @@ data Expression
   | Infix Operator
           Expression
           Expression
-  | Call Ident [Expression]
+  | Call Ident
+         [Expression]
   deriving (Show, Eq)
 
 parseDigit = do
@@ -67,11 +72,8 @@ parseDeclaration = do
 
 parseCall = do
   name <- parseIdent
-
   spaces
-
   arguments <- many1 parseArgument
-
   return $ Call name arguments
   where
     parseArgument = do
@@ -80,18 +82,18 @@ parseCall = do
       return $ Identifier (ident name)
 
 parseExpression =
-  try parseInfix <|> parseDigit <|> try parseDeclaration <|> try parseCall <|> parseIdentifier
+  try parseInfix <|> parseDigit <|> try parseDeclaration <|> try parseCall <|>
+  parseIdentifier
 
 parseIdentifier = do
   name <- parseIdent
-
   return $ Identifier name
 
 parseIdent = do
   name <- many1 letter
   return (ident name)
 
-parseString :: ParsecT [Char] u Identity Expression
+parseString :: ParsecT String u Identity Expression
 parseString = do
   expr <- parseExpression
   spaces
@@ -139,13 +141,18 @@ printWasm expr = "(module\n" ++ indent (printWasmExpr expr) 2 ++ ")"
           name ++
           " " ++
           paramsString args ++
-          " " ++ "(result i32)\n" ++ indent ("(return \n" ++ indent (printWasmExpr expr) 2 ++ ")") 2 ++ ")"
+          " " ++
+          "(result i32)\n" ++
+          indent ("(return \n" ++ indent (printWasmExpr expr) 2 ++ ")") 2 ++ ")"
         Infix op expr expr2 ->
           "(" ++
           opString op ++
-          "\n" ++ indent (printWasmExpr expr ++ "\n" ++ printWasmExpr expr2) 2 ++ ")\n"
+          "\n" ++
+          indent (printWasmExpr expr ++ "\n" ++ printWasmExpr expr2) 2 ++ ")\n"
         Identifier name -> "(get_local $" ++ name ++ ")"
-        Call name args -> "(call $" ++ name ++ "\n" ++ indent (unlines (printWasmExpr <$> args)) 2 ++ ")"
+        Call name args ->
+          "(call $" ++
+          name ++ "\n" ++ indent (unlines (printWasmExpr <$> args)) 2 ++ ")"
     paramsString args = unwords (paramString <$> args)
     paramString arg = "(param $" ++ arg ++ " i32)"
     opString op =
