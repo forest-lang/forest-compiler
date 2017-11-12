@@ -1,12 +1,14 @@
-import Lib
+import Control.Monad
 import Test.QuickCheck
+
+import Lib
 
 instance Arbitrary Expression where
   arbitrary = genExpression
 
 genExpression :: Gen Expression
 genExpression =
-  oneof [genIdentifier, genNumber, genAssignment, genInfix, genCall]
+  oneof [genIdentifier, genNumber, genAssignment, genInfix, genCall, genCase]
 
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
@@ -46,6 +48,19 @@ genCall = do
   name <- genString
   args <- listOf1 genIdentifier
   return $ Call name args
+
+(>*<) :: Gen a -> Gen b -> Gen (a,b)
+x >*< y = liftM2 (,) x y
+
+genCase :: Gen Expression
+genCase = do
+  caseExpr <- genExpression
+
+  cases <- listOf1 genCase
+
+  return $ Case caseExpr cases
+  where
+    genCase = oneof [genNumber, genIdentifier] >*< genExpression
 
 propParseAndPrint :: Expression -> Bool
 propParseAndPrint expr =

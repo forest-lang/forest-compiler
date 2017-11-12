@@ -8,6 +8,8 @@ module Lib
 
 import Data.Char
 import Data.Functor.Identity
+import Data.List
+import Debug.Trace
 import Text.Parsec
 
 data Operator
@@ -33,6 +35,8 @@ data Expression
           Expression
   | Call Ident
          [Expression]
+  | Case Expression
+         [(Expression, Expression)]
   deriving (Show, Eq)
 
 parseDigit = do
@@ -77,13 +81,34 @@ parseCall = do
   return $ Call name arguments
   where
     parseArgument = do
-      name <- many1 letter
+      argument <- parseExpression
       spaces
-      return $ Identifier (ident name)
+      return $ argument
 
 parseExpression =
-  try parseInfix <|> parseDigit <|> try parseDeclaration <|> try parseCall <|>
+  try parseCase <|> try parseInfix <|> parseDigit <|> try parseDeclaration <|>
+  try parseCall <|>
   parseIdentifier
+
+parseCase = do
+  spaces
+  string "case"
+  spaces
+  expr <- parseIdentifier
+  spaces
+  string "of"
+  spaces
+  patterns <- many1 parsePattern
+  return $ Case expr patterns
+  where
+    parsePattern = do
+      pattern' <- parseDigit <|> parseIdentifier
+      spaces
+      string "->"
+      spaces
+      expr <- parseExpression
+      spaces
+      return (pattern', expr)
 
 parseIdentifier = do
   name <- parseIdent
@@ -121,13 +146,20 @@ printExpression expr =
       name ++ " " ++ unwords args ++ " = " ++ printExpression expr
     Identifier name -> name
     Call name args -> name ++ " " ++ unwords (printExpression <$> args)
+    Case caseExpr patterns ->
+      "case " ++
+      printExpression caseExpr ++ " of\n" ++ indent (printPatterns patterns) 2
+  where
+    printPatterns patterns = unlines $ map printPattern patterns
+    printPattern (patternExpr, resultExpr) =
+      printExpression patternExpr ++ " -> " ++ printExpression resultExpr
 
 indent :: String -> Int -> String
 indent str level =
-  unlines $ map (\line -> replicate level ' ' ++ line) (lines str)
+  intercalate "\n" $ map (\line -> replicate level ' ' ++ line) (lines str)
 
 printWasm :: Expression -> String
-printWasm expr = "(module\n" ++ indent (printWasmExpr expr) 2 ++ ")"
+printWasm expr = "(module\n" ++ indent (printWasmExpr expr) 2 ++ "\n)"
   where
     printWasmExpr expr =
       case expr of
@@ -143,21 +175,63 @@ printWasm expr = "(module\n" ++ indent (printWasmExpr expr) 2 ++ ")"
           paramsString args ++
           " " ++
           "(result i32)\n" ++
-          indent ("(return \n" ++ indent (printWasmExpr expr) 2 ++ ")") 2 ++ ")"
+          indent ("(return \n" ++ indent (printWasmExpr expr) 2 ++ "\n)") 2 ++
+          "\n)"
         Infix op expr expr2 ->
           "(" ++
           opString op ++
           "\n" ++
-          indent (printWasmExpr expr ++ "\n" ++ printWasmExpr expr2) 2 ++ ")\n"
+          indent (printWasmExpr expr ++ "\n" ++ printWasmExpr expr2) 2 ++ "\n)"
         Identifier name -> "(get_local $" ++ name ++ ")"
         Call name args ->
           "(call $" ++
-          name ++ "\n" ++ indent (unlines (printWasmExpr <$> args)) 2 ++ ")"
+          name ++ "\n" ++ indent (unlines (printWasmExpr <$> args)) 2 ++ "\n)"
+        Case caseExpr patterns -> printCase caseExpr patterns
+      where
+        printCase caseExpr patterns =
+          "(select\n" ++
+          indent
+            (printPatterns caseExpr patterns)
+            2 ++
+          "\n)"
+        combinePatterns acc val = acc ++ "\n" ++ printPattern val
+        printPattern (patternExpr, branchExpr) = printWasmExpr branchExpr
+        firstCase patterns = fst (head patterns)
+        printPatterns caseExpr patterns =
+          case length patterns of
+            1 ->
+              intercalate
+                "\n"
+                [ printPattern (head patterns)
+                , "(noop)"
+                , printComparator caseExpr (fst $ head patterns)
+                ]
+            2 ->
+              intercalate
+                "\n"
+                [ printPattern (head patterns)
+                , printPattern (head $ tail patterns)
+                , printComparator caseExpr (fst $ head patterns)
+                ]
+            n ->
+              intercalate
+                "\n"
+                [ printPattern (head patterns)
+                , printCase caseExpr (tail patterns)
+                , printComparator caseExpr (fst $ head patterns)
+                ]
+        printComparator a b =
+          unlines
+            [ "(i32.eq"
+            , indent (printWasmExpr a) 2
+            , indent (printWasmExpr b) 2
+            , ")"
+            ]
     paramsString args = unwords (paramString <$> args)
     paramString arg = "(param $" ++ arg ++ " i32)"
     opString op =
       case op of
         Add -> "i32.add"
-        Subtract -> "i32.subtract"
-        Multiply -> "i32.multiply"
-        Divide -> "i32.divide"
+        Subtract -> "i32.sub"
+        Multiply -> "i32.mul"
+        Divide -> "i32.div_s"

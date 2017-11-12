@@ -1,2 +1,5 @@
-triangle i =
-  map plus
+fib i =
+  case i of
+    0 -> 1
+    1 -> 1
+    n -> fib 2 - i
