@@ -1,0 +1,1 @@
+addOne n = 1 + n
