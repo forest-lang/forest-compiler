@@ -1,6 +1,7 @@
 module Lib
   ( printWasm
   , printExpression
+  , printModule
   , parseExpressionFromString
   , Expression(..)
   , Operator(..)
@@ -37,6 +38,7 @@ data Expression
          [Expression]
   | Case Expression
          [(Expression, Expression)]
+  | BetweenParens Expression
   deriving (Show, Eq)
 
 parseDigit = do
@@ -53,7 +55,7 @@ parseOperator = do
       '/' -> Divide
 
 parseInfix = do
-  a <- parseDigit
+  a <- parseDigit <|> parseIdentifier
   spaces
   operator <- parseOperator
   spaces
@@ -85,8 +87,18 @@ parseCall = do
       spaces
       return $ argument
 
+parseBetweenParens = do
+  char '('
+
+  expr <- parseExpression
+
+  char ')'
+
+  return $ BetweenParens expr
+
 parseExpression =
-  try parseCase <|> try parseInfix <|> parseDigit <|> try parseDeclaration <|>
+  parseBetweenParens <|> try parseCase <|> try parseInfix <|> parseDigit <|>
+  try parseDeclaration <|>
   try parseCall <|>
   parseIdentifier
 
@@ -118,14 +130,14 @@ parseIdent = do
   name <- many1 letter
   return (ident name)
 
-parseString :: ParsecT String u Identity Expression
+parseString :: ParsecT String u Identity [Expression]
 parseString = do
-  expr <- parseExpression
+  expr <- many1 parseExpression
   spaces
   eof
   return expr
 
-parseExpressionFromString :: String -> Either ParseError Expression
+parseExpressionFromString :: String -> Either ParseError [Expression]
 parseExpressionFromString = parse parseString ""
 
 operatorToString :: Operator -> String
@@ -135,6 +147,10 @@ operatorToString op =
     Subtract -> "-"
     Multiply -> "*"
     Divide -> "/"
+
+printModule :: [Expression] -> String
+printModule expressions =
+  intercalate "\n\n" $ map printExpression expressions
 
 printExpression :: Expression -> String
 printExpression expr =
@@ -149,6 +165,7 @@ printExpression expr =
     Case caseExpr patterns ->
       "case " ++
       printExpression caseExpr ++ " of\n" ++ indent (printPatterns patterns) 2
+    BetweenParens expr -> "(" ++ printExpression expr ++ ")"
   where
     printPatterns patterns = unlines $ map printPattern patterns
     printPattern (patternExpr, resultExpr) =
@@ -158,8 +175,8 @@ indent :: String -> Int -> String
 indent str level =
   intercalate "\n" $ map (\line -> replicate level ' ' ++ line) (lines str)
 
-printWasm :: Expression -> String
-printWasm expr = "(module\n" ++ indent (printWasmExpr expr) 2 ++ "\n)"
+printWasm :: [Expression] -> String
+printWasm expr = "(module\n" ++ indent (intercalate "\n" $ (map printWasmExpr expr)) 2 ++ "\n)"
   where
     printWasmExpr expr =
       case expr of
@@ -187,13 +204,10 @@ printWasm expr = "(module\n" ++ indent (printWasmExpr expr) 2 ++ "\n)"
           "(call $" ++
           name ++ "\n" ++ indent (unlines (printWasmExpr <$> args)) 2 ++ "\n)"
         Case caseExpr patterns -> printCase caseExpr patterns
+        BetweenParens expr -> printWasmExpr expr
       where
         printCase caseExpr patterns =
-          "(select\n" ++
-          indent
-            (printPatterns caseExpr patterns)
-            2 ++
-          "\n)"
+          "(select\n" ++ indent (printPatterns caseExpr patterns) 2 ++ "\n)"
         combinePatterns acc val = acc ++ "\n" ++ printPattern val
         printPattern (patternExpr, branchExpr) = printWasmExpr branchExpr
         firstCase patterns = fst (head patterns)

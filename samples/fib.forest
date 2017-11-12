@@ -2,4 +2,4 @@ fib i =
   case i of
     0 -> 1
     1 -> 1
-    n -> fib 2 - i
+    n -> add (fib i - 2) (fib i - 1)

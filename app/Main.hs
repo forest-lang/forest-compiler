@@ -26,7 +26,7 @@ main = do
 
       case result of
         Right a ->
-          putStrLn $ show a ++ "\n" ++ printExpression a ++ "\n" ++ printWasm a
+          putStrLn $ show a ++ "\n" ++ printModule a ++ "\n" ++ printWasm a
         Left err -> putStrLn $ "Dun goofed" ++ show err
     Nothing -> putStrLn "please provide a file to compile"
 
