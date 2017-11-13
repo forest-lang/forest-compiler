@@ -155,7 +155,7 @@ printExpression expr =
     Infix op expr expr2 ->
       unwords [printExpression expr, operatorToString op, printExpression expr2]
     Assignment name args expr ->
-      name ++ " " ++ unwords args ++ " = " ++ printExpression expr
+      name ++ " " ++ unwords args ++ " = \n" ++ indent (printExpression expr) 2
     Identifier name -> name
     Call name args -> name ++ " " ++ unwords (printExpression <$> args)
     Case caseExpr patterns ->
