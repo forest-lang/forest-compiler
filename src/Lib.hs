@@ -85,15 +85,12 @@ parseCall = do
     parseArgument = do
       argument <- parseExpression
       spaces
-      return $ argument
+      return argument
 
 parseBetweenParens = do
   char '('
-
   expr <- parseExpression
-
   char ')'
-
   return $ BetweenParens expr
 
 parseExpression =
@@ -149,8 +146,7 @@ operatorToString op =
     Divide -> "/"
 
 printModule :: [Expression] -> String
-printModule expressions =
-  intercalate "\n\n" $ map printExpression expressions
+printModule expressions = intercalate "\n\n" $ map printExpression expressions
 
 printExpression :: Expression -> String
 printExpression expr =
@@ -176,7 +172,8 @@ indent str level =
   intercalate "\n" $ map (\line -> replicate level ' ' ++ line) (lines str)
 
 printWasm :: [Expression] -> String
-printWasm expr = "(module\n" ++ indent (intercalate "\n" $ (map printWasmExpr expr)) 2 ++ "\n)"
+printWasm expr =
+  "(module\n" ++ indent (intercalate "\n" $ map printWasmExpr expr) 2 ++ "\n)"
   where
     printWasmExpr expr =
       case expr of
@@ -207,35 +204,27 @@ printWasm expr = "(module\n" ++ indent (intercalate "\n" $ (map printWasmExpr ex
         BetweenParens expr -> printWasmExpr expr
       where
         printCase caseExpr patterns =
-          "(select\n" ++ indent (printPatterns caseExpr patterns) 2 ++ "\n)"
+          "(if (result i32)\n" ++
+          indent (printPatterns caseExpr patterns) 2 ++ "\n)"
         combinePatterns acc val = acc ++ "\n" ++ printPattern val
         printPattern (patternExpr, branchExpr) = printWasmExpr branchExpr
         firstCase patterns = fst (head patterns)
         printPatterns caseExpr patterns =
+          intercalate "\n" $
           case length patterns of
             1 ->
-              intercalate
-                "\n"
-                [ printPattern (head patterns)
-                , "(noop)"
-                , printComparator caseExpr (fst $ head patterns)
-                ]
-            2 ->
-              intercalate
-                "\n"
-                [ printPattern (head patterns)
-                , printPattern (head $ tail patterns)
-                , printComparator caseExpr (fst $ head patterns)
-                ]
+              [ printComparator caseExpr (fst $ head patterns)
+              , "(then \n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
+              ]
             n ->
-              intercalate
-                "\n"
-                [ printPattern (head patterns)
-                , printCase caseExpr (tail patterns)
-                , printComparator caseExpr (fst $ head patterns)
-                ]
+              [ printComparator caseExpr (fst $ head patterns)
+              , "(then \n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
+              , "(else \n" ++
+                indent (printCase caseExpr (tail patterns)) 2 ++ "\n)"
+              ]
         printComparator a b =
-          unlines
+          intercalate
+            "\n"
             [ "(i32.eq"
             , indent (printWasmExpr a) 2
             , indent (printWasmExpr b) 2

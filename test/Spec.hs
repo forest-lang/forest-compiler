@@ -67,7 +67,7 @@ propParseAndPrint expr =
   let output = printExpression expr
       reparsedExpr = parseExpressionFromString output
   in case reparsedExpr of
-       Right newExpr -> newExpr == expr
+       Right newExpr -> head newExpr == expr
        Left err -> False
 
 main :: IO ()
