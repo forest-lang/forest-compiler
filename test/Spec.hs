@@ -33,7 +33,7 @@ genAssignment = do
   expr <- genExpression
   return $ Assignment name args expr
 
-genOperator :: Gen Operator
+genOperator :: Gen OperatorExpr
 genOperator = elements [Add, Subtract, Multiply, Divide]
 
 genInfix :: Gen Expression

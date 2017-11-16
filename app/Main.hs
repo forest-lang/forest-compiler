@@ -1,7 +1,6 @@
 module Main where
 
 import Lib
-import Text.Parsec
 import System.Environment
 import Data.Maybe
 

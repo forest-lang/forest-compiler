@@ -4,16 +4,22 @@ module Lib
   , printModule
   , parseExpressionFromString
   , Expression(..)
-  , Operator(..)
+  , OperatorExpr(..)
   ) where
 
 import Data.Char
 import Data.Functor.Identity
-import Data.List
+import Data.List (intercalate)
+import Data.Text (Text)
 import Debug.Trace
-import Text.Parsec
 
-data Operator
+import Text.Megaparsec
+import Text.Megaparsec.Expr
+
+type Parser = Parsec Dec String
+type ParseError' = ParseError Char Dec
+
+data OperatorExpr
   = Add
   | Subtract
   | Divide
@@ -31,7 +37,7 @@ data Expression
   | Assignment Ident
                [Ident]
                Expression
-  | Infix Operator
+  | Infix OperatorExpr
           Expression
           Expression
   | Call Ident
@@ -41,10 +47,12 @@ data Expression
   | BetweenParens Expression
   deriving (Show, Eq)
 
+parseDigit   :: Parser Expression
 parseDigit = do
-  value <- many1 digit
+  value <- some digitChar
   return $ Number (read value)
 
+parseOperator  :: Parser OperatorExpr
 parseOperator = do
   char <- oneOf "+-*/"
   return $
@@ -54,90 +62,98 @@ parseOperator = do
       '*' -> Multiply
       '/' -> Divide
 
+parseInfix :: Parser Expression
 parseInfix = do
   a <- parseDigit <|> parseIdentifier
-  spaces
+  space
   operator <- parseOperator
-  spaces
+  space
   b <- parseExpression
   return $ Infix operator a b
 
+parseDeclaration :: Parser Expression
 parseDeclaration = do
-  name <- many letter
-  spaces
+  name <- many letterChar
+  space
   arguments <- many parseArgument
   char '='
-  spaces
+  space
   value <- parseExpression
   return $ Assignment (ident name) arguments value
   where
     parseArgument = do
-      name <- many1 letter
-      spaces
+      name <- some letterChar
+      space
       return (ident name)
 
+
+parseCall  :: Parser Expression
 parseCall = do
   name <- parseIdent
-  spaces
-  arguments <- many1 parseArgument
+  space
+  arguments <- some parseArgument
   return $ Call name arguments
   where
     parseArgument = do
       argument <- parseExpression
-      spaces
+      space
       return argument
 
+parseBetweenParens :: Parser Expression
 parseBetweenParens = do
   char '('
   expr <- parseExpression
   char ')'
   return $ BetweenParens expr
 
+parseExpression  :: Parser Expression
 parseExpression =
   parseBetweenParens <|> try parseCase <|> try parseInfix <|> parseDigit <|>
   try parseDeclaration <|>
   try parseCall <|>
   parseIdentifier
 
+parseCase :: Parser Expression
 parseCase = do
-  spaces
+  space
   string "case"
-  spaces
+  space
   expr <- parseIdentifier
-  spaces
+  space
   string "of"
-  spaces
-  patterns <- many1 parsePattern
+  space
+  patterns <- some parsePattern
   return $ Case expr patterns
   where
     parsePattern = do
       pattern' <- parseDigit <|> parseIdentifier
-      spaces
+      space
       string "->"
-      spaces
+      space
       expr <- parseExpression
-      spaces
+      space
       return (pattern', expr)
 
+parseIdentifier :: Parser Expression
 parseIdentifier = do
   name <- parseIdent
   return $ Identifier name
 
+parseIdent  :: Parser Ident
 parseIdent = do
-  name <- many1 letter
+  name <- some letterChar
   return (ident name)
 
-parseString :: ParsecT String u Identity [Expression]
+parseString :: Parser [Expression]
 parseString = do
-  expr <- many1 parseExpression
-  spaces
+  expr <- some parseExpression
+  space
   eof
   return expr
 
-parseExpressionFromString :: String -> Either ParseError [Expression]
 parseExpressionFromString = parse parseString ""
 
-operatorToString :: Operator -> String
+operatorToString :: OperatorExpr -> String
 operatorToString op =
   case op of
     Add -> "+"
