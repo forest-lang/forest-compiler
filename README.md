@@ -108,11 +108,13 @@ In Forest, a simple reference counting strategy is used to keep track of allocat
 Forest will automatically free any memory when it is no longer referenced. By default, this happens automatically as the code executes. Users can optionally disable this and instead run incremental cleanup for a specified number of milliseconds. In applications trying to maintain a smooth framerate, this allows for fine control over cleanup pauses.
 
 **Why compile directly to WebAssembly? Why not compile to LLVM and get WASM support for free, along with many other platforms?**
+
 There are a few reasons for this. The first is that I'm interested in learning about WebAssembly, and compiling to it is a great way to learn how it works. The second is that Forest aims to squeeze as much performance out of the browser as is reasonably possible. Compiling directly to WebAssembly means we can ensure we produce the smallest reasonable number of instructions to run a program.
 
 Support for compiling to other platforms is planned, as Forest aspires to be a general purpose language. However, the web comes first.
 
 **How close is Forest to being ready for real use?**
+
 Forest is just a sprout right now, it has a long way to go.
 
 Right now, it supports:
