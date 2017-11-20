@@ -21,7 +21,7 @@ Features
  * Pattern matching
  * Immutable datastructures (with mutable optimizations for common cases)
  * Ref-counted, incremental cleanup that can be scheduled. No automatic stop the world GC.
- * Multiple syntaxes, users can create and customize syntaxes, and translate between.
+ * Multiple syntaxes, users can create and customize syntaxes, and project between.
  * Automatic code formatting
  * Dev virtual filesystem powered by FUSE to project code into desired syntax.
  * Visual editor
@@ -33,7 +33,7 @@ FAQ
 
 A few reasons. I work on Cycle.js and build apps with it. I wanted to build a visual editor for Cycle.js, but also wanted to be able to edit a textual representation. Rather than retrofitting a complex system to enable that on top of a language with suboptimal semantics, I preferred to start fresh.
 
-I also started working more with Elm, and while I really like a lot of aspects of Elm's type system and syntax, I missed being able to build applications as dataflow graphs.
+I also started working more with Elm, and while I like many aspects of Elm's type system and syntax, I missed being able to build applications as dataflow graphs.
 
 On top of all of that, I have a keen interest in making games on the web, but I am frustrated by the memory model in JavaScript. The hiccups introduced by uncontrollable stop the world garbage collection tear at my soul. I view WebAssembly as an amazing opportunity to eliminate much of the cruft that bloats the web platform.
 
@@ -69,25 +69,41 @@ Notice that while the syntax in these examples differs, the underlying semantics
 
 **If every dev can use different syntax, what do we store in the repo?**
 
-You only need to store a single representation of the syntax in source control, which we'll call the canonical representation. This would be agreed by the project's collaborators, but is largely unimportant.
+You only need to store a single representation of the syntax in source control, which we'll call the canonical representation. The syntax for this represenation would be agreed by the project's collaborators, but is largely unimportant.
+
+**What's the point of having different syntaxes?**
+
+Syntax is polarising. I know people who love Ruby's syntax, and people who hate it. I know people who love Haskell syntax, and people who hate it. The syntax of your language immediately alienates a large swathe of the community.
+
+Beyond languages, the arguments go on. Tabs vs spaces? Whitespace sensitive or curly braces? Semicolons or not?
+
+If everyone can use the syntax they desire, we don't need to have those arguments anymore. How much time does your team spend talking style?
+
+In current languages, new syntax is headline news. Some of the best parts of ES2015 were simply syntactic sugar. If we push syntax to userland, each developer can have their preferred sugar and we can iterate without the need for major version changes to languages.
+
+Additionally, having a variety of different syntaxes might aid beginners in learning the language and contributing to projects. Maybe the maintainers of a project personally like the Haskell syntax with the [sweet unicode greek alphabet generics](https://hackage.haskell.org/package/wai-cors-0.2.5/docs/src/Network.Wai.Middleware.Cors.html#sshow), but perhaps a new contributor is more accustomed to a Python style syntax. Why shouldn't they be able to work together?
+
+**Won't the docs be in a different syntax than what I prefer? What about code snippets?**
+
+A medium term goal is for the Forest compiler to be written in Forest. This means syntaxes will also be written in Forest, which means we can run them in a web browser. So it would be possible to display docs in your preferred syntax, or at least your favourite core syntax. As for code snippets, we could build a code snippet sharing website that projects the snippet to your preferred syntax.
 
 **How do I edit the code in my preferred syntax? Do I need an editor plugin?**
 
 When working on the project, each developer runs `forest dev`, which mounts a virtual filesystem in the local directory using FUSE, called `dev/`.
 
-`dev/` contains all of the source files, translated into the developer's syntax of choice. The developer can read and write these files using their text editor of choice, modifying the canonical representation, with no need to install an editor plugin. Their syntax automatically generates syntax highlighting files for all common editors.
+`dev/` contains all of the source files, projected into the developer's syntax of choice. The developer can read and write these files using their text editor of choice, modifying the canonical representation, with no need to install an editor plugin. Their syntax automatically generates syntax highlighting files for all common editors.
 
 **What about reviewing changes in the command line and web?**
 
 Source control tools such as git can be configured to diff using `forest diff`, which shows the diffs in the developer's preferred syntax.
 
-When reviewing pull requests on the web, developers use WebExtensions to translate the changes to their preferred syntax.
+When reviewing pull requests on the web, developers use WebExtensions to project the changes to their preferred syntax.
 
 **Aren't immutable data structures memory innefficient? Won't that limit your performance with complex games?**
 
 Immutable data structures can have suboptimal characteristics for some classes of high performance applications. This is due to the need to allocate new memory for every change, and in garbage collected languages the need to cleanup unused previous structures.
 
-In Forest, a simple reference counting strategy is used to keep track of allocated memory. When an immutable update is performed, if there is only a single reference to the memory that is being updated, we can simply update the memory in-place. This saves need to garbage collect the old version that is no longer referenced.
+In Forest, a simple reference counting strategy is used to keep track of allocated memory. When an immutable update is performed, if there is only a single reference to the memory that is being updated, we can simply update the memory in-place. This saves the need to garbage collect the old version that is no longer referenced.
 
 Forest will automatically free any memory when it is no longer referenced. By default, this happens automatically as the code executes. Users can optionally disable this and instead run incremental cleanup for a specified number of milliseconds. In applications trying to maintain a smooth framerate, this allows for fine control over cleanup pauses.
 
