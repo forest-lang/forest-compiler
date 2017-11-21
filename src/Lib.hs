@@ -56,12 +56,12 @@ data Expression
 expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
-lexeme :: Parser Expression -> Parser Expression
+lexeme :: Parser a -> Parser a
 lexeme parser = space >> parser <* space
 
 term =
-  parens <|> parseDigit <|> try parseCase <|> try parseDeclaration <|> try parseCall <|>
-  parseIdentifier <?> "term"
+  parens <|> digit <|> try case' <|> try declaration <|> try call <|>
+  identifier <?> "term"
 
 parens = do
   char '('
@@ -76,73 +76,53 @@ table =
   , [InfixL (Infix Subtract <$ char '-')]
   ]
 
-parseDigit :: Parser Expression
-parseDigit = do
+digit :: Parser Expression
+digit = do
   value <- some digitChar
   return $ Number (read value)
 
-parseDeclaration :: Parser Expression
-parseDeclaration = do
+declaration :: Parser Expression
+declaration = do
   name <- many letterChar
-  space
-  arguments <- many parseArgument
-  char '='
-  space
+  arguments <- lexeme $ many parseArgument
+  lexeme $ char '='
   value <- expr
   return $ Assignment (ident name) arguments value
   where
-    parseArgument = do
-      name <- some letterChar
-      space
-      return (ident name)
+    parseArgument = ident <$> lexeme (some letterChar)
 
-parseCall :: Parser Expression
-parseCall = do
+call :: Parser Expression
+call = do
   name <- parseIdent
   space
   arguments <- some parseArgument
   return $ Call name arguments
   where
-    parseArgument = do
-      argument <- expr
-      space
-      return argument
+    parseArgument = lexeme expr
 
-parseCase :: Parser Expression
-parseCase = do
-  space
-  string "case"
-  space
-  expr <- parseIdentifier
-  space
-  string "of"
-  space
+case' :: Parser Expression
+case' = do
+  lexeme $ string "case"
+  expr <- identifier
+  lexeme $ string "of"
   patterns <- some parsePattern
   return $ Case expr patterns
   where
     parsePattern = do
-      pattern' <- parseDigit <|> parseIdentifier
-      space
-      string "->"
-      space
+      pattern' <- digit <|> identifier
+      lexeme $ string "->"
       expr <- expr
-      space
       return (pattern', expr)
 
-parseIdentifier :: Parser Expression
-parseIdentifier = do
-  name <- parseIdent
-  return $ Identifier name
+identifier :: Parser Expression
+identifier = Identifier <$> parseIdent
 
 parseIdent :: Parser Ident
-parseIdent = do
-  name <- some letterChar
-  return (ident name)
+parseIdent = ident <$> some letterChar
 
 parseString :: Parser [Expression]
 parseString = do
-  expr <- some expr
-  space
+  expr <- lexeme $ some expr
   eof
   return expr
 
