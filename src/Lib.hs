@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Lib
   ( printWasm
   , printExpression
@@ -5,6 +7,7 @@ module Lib
   , parseExpressionFromString
   , Expression(..)
   , OperatorExpr(..)
+  , expr
   ) where
 
 import Data.Char
@@ -14,9 +17,11 @@ import Data.Text (Text)
 import Debug.Trace
 
 import Text.Megaparsec
+import Text.Megaparsec.Char
 import Text.Megaparsec.Expr
 
 type Parser = Parsec Dec String
+
 type ParseError' = ParseError Char Dec
 
 data OperatorExpr
@@ -45,31 +50,36 @@ data Expression
   | Case Expression
          [(Expression, Expression)]
   | BetweenParens Expression
+  | Negative Expression
   deriving (Show, Eq)
 
-parseDigit   :: Parser Expression
+expr :: Parser Expression
+expr = makeExprParser (lexeme term) table <?> "expression"
+
+lexeme :: Parser Expression -> Parser Expression
+lexeme parser = space >> parser <* space
+
+term =
+  parens <|> parseDigit <|> try parseCase <|> try parseDeclaration <|> try parseCall <|>
+  parseIdentifier <?> "term"
+
+parens = do
+  char '('
+  expr <- expr
+  char ')'
+  return $ BetweenParens expr
+
+table =
+  [ [InfixL (Infix Divide <$ char '/')]
+  , [InfixL (Infix Multiply <$ char '*')]
+  , [InfixL (Infix Add <$ char '+')]
+  , [InfixL (Infix Subtract <$ char '-')]
+  ]
+
+parseDigit :: Parser Expression
 parseDigit = do
   value <- some digitChar
   return $ Number (read value)
-
-parseOperator  :: Parser OperatorExpr
-parseOperator = do
-  char <- oneOf "+-*/"
-  return $
-    case char of
-      '+' -> Add
-      '-' -> Subtract
-      '*' -> Multiply
-      '/' -> Divide
-
-parseInfix :: Parser Expression
-parseInfix = do
-  a <- parseDigit <|> parseIdentifier
-  space
-  operator <- parseOperator
-  space
-  b <- parseExpression
-  return $ Infix operator a b
 
 parseDeclaration :: Parser Expression
 parseDeclaration = do
@@ -78,7 +88,7 @@ parseDeclaration = do
   arguments <- many parseArgument
   char '='
   space
-  value <- parseExpression
+  value <- expr
   return $ Assignment (ident name) arguments value
   where
     parseArgument = do
@@ -86,8 +96,7 @@ parseDeclaration = do
       space
       return (ident name)
 
-
-parseCall  :: Parser Expression
+parseCall :: Parser Expression
 parseCall = do
   name <- parseIdent
   space
@@ -95,23 +104,9 @@ parseCall = do
   return $ Call name arguments
   where
     parseArgument = do
-      argument <- parseExpression
+      argument <- expr
       space
       return argument
-
-parseBetweenParens :: Parser Expression
-parseBetweenParens = do
-  char '('
-  expr <- parseExpression
-  char ')'
-  return $ BetweenParens expr
-
-parseExpression  :: Parser Expression
-parseExpression =
-  parseBetweenParens <|> try parseCase <|> try parseInfix <|> parseDigit <|>
-  try parseDeclaration <|>
-  try parseCall <|>
-  parseIdentifier
 
 parseCase :: Parser Expression
 parseCase = do
@@ -130,7 +125,7 @@ parseCase = do
       space
       string "->"
       space
-      expr <- parseExpression
+      expr <- expr
       space
       return (pattern', expr)
 
@@ -139,14 +134,14 @@ parseIdentifier = do
   name <- parseIdent
   return $ Identifier name
 
-parseIdent  :: Parser Ident
+parseIdent :: Parser Ident
 parseIdent = do
   name <- some letterChar
   return (ident name)
 
 parseString :: Parser [Expression]
 parseString = do
-  expr <- some parseExpression
+  expr <- some expr
   space
   eof
   return expr
