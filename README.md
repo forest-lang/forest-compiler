@@ -69,7 +69,7 @@ Notice that while the syntax in these examples differs, the underlying semantics
 
 **If every dev can use different syntax, what do we store in the repo?**
 
-You only need to store a single representation of the syntax in source control, which we'll call the canonical representation. The syntax for this represenation would be agreed by the project's collaborators, but is largely unimportant.
+You only need to store a single representation of the syntax in source control, which we'll call the canonical representation. The syntax for this representation would be agreed by the project's collaborators, but is largely unimportant.
 
 **What's the point of having different syntaxes?**
 
@@ -129,7 +129,6 @@ Critical missing features:
   * if/else
   * a type system
   * ADTs, union types
-  * left recursive infix arithmetic
   * memory management
   * effects
 
