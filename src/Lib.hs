@@ -103,7 +103,7 @@ call = do
 case' :: Parser Expression
 case' = do
   lexeme $ string "case"
-  expr <- identifier
+  expr <- expr
   lexeme $ string "of"
   patterns <- some parsePattern
   return $ Case expr patterns

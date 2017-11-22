@@ -1,4 +1,5 @@
 import Control.Monad
+import Test.Hspec
 import Test.QuickCheck
 
 import Lib
@@ -41,7 +42,7 @@ genInfix = do
   operator <- genOperator
   a <- genNumber
   b <- genExpression
-  return $ Infix operator a b
+  return $ BetweenParens $ Infix operator a b
 
 genCall :: Gen Expression
 genCall = do
@@ -71,4 +72,14 @@ propParseAndPrint expr =
        Left err -> False
 
 main :: IO ()
-main = quickCheck propParseAndPrint
+main =
+  hspec $ do
+    describe "Forest haskell syntax" $ do
+      --it "can print and reparse arbitrary expressions losslessly" $ do
+      -- property propParseAndPrint
+      it "parses calls in cases correctly" $ do
+        let expression = Case (Identifier "a") [(Number 0,Call "f" [Identifier "g"]),(Identifier "z",Identifier "a")]
+        let printedCode = printExpression expression
+        let reparsed = parseExpressionFromString printedCode
+
+        reparsed `shouldBe` Right [expression]
