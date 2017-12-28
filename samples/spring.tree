@@ -1,0 +1,49 @@
+type Vector (Num => t) = { x: t, y: t }
+
+operate : (t -> t -> t) -> Vector t -> Vector t -> Vector t
+operate f a b =
+  let
+    x = f a.x b.x
+    y = f a.y b.y
+  in
+    { x, y }
+
+operate' : (t -> t -> t) -> Vector t -> t -> Vector t
+operate' f v t =
+  let
+    x = f a.x t
+    y = f a.y t
+  in
+    { x, y }
+
+(+) : Vector t -> Vector t -> Vector t
+(+) = operate (+)
+
+(-) : Vector t -> Vector t -> Vector t
+(-) = operate (-)
+
+(*) : Vector t -> t -> Vector t
+(*) = operate' (*)
+
+(/) : Vector t -> t -> Vector t
+(/) = operate' (/)
+
+update : State -> Vector -> State
+update state position =
+  let
+    difference = position - state
+  in
+    state + difference / 10
+
+view : State -> HTML
+view state =
+  div { class: "point", style: { left: "#{state.x}px", right: "#{state.y}px" } } ""
+
+main : Mouse -> Animation -> DOM
+main Mouse Animation =
+  let
+    initialState   = { x: 300, y: 300 }
+    mousePosition$ = sample Mouse.position$ Animation.frame$
+    state$         = fold update initialState mousePosition$
+  in
+    DOM = map view state$

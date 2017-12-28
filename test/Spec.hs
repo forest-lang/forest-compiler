@@ -75,8 +75,8 @@ main :: IO ()
 main =
   hspec $ do
     describe "Forest haskell syntax" $ do
-      --it "can print and reparse arbitrary expressions losslessly" $ do
-      -- property propParseAndPrint
+      it "can print and reparse arbitrary expressions losslessly" $ do
+       property propParseAndPrint
       it "parses calls in cases correctly" $ do
         let expression = Case (Identifier "a") [(Number 0,Call "f" [Identifier "g"]),(Identifier "z",Identifier "a")]
         let printedCode = printExpression expression

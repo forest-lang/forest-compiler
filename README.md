@@ -50,7 +50,7 @@ fib i =
   case i of
     0 -> 1
     1 -> 1
-    n -> (fib n - 2) + (fib n - 1)
+    i -> (fib i - 2) + (fib i - 1)
 ```
 
 However, this could just as easily be written using another syntax more comparable to JavaScript:
@@ -60,7 +60,7 @@ function fib(i) {
   switch (i) {
     case 0: 1;
     case 1: 1;
-    case n: fib(n - 2) + fib(n - 1);
+    case i: fib(i - 2) + fib(i - 1);
   }
 }
 ```
