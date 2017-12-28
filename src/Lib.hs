@@ -180,7 +180,7 @@ printWasm expr =
           paramsString args ++
           " " ++
           "(result i32)\n" ++
-          indent ("(return \n" ++ indent (printWasmExpr expr) 2 ++ "\n)") 2 ++
+          indent ("(return\n" ++ indent (printWasmExpr expr) 2 ++ "\n)") 2 ++
           "\n)"
         Infix op expr expr2 ->
           "(" ++
@@ -205,13 +205,13 @@ printWasm expr =
           case length patterns of
             1 ->
               [ printComparator caseExpr (fst $ head patterns)
-              , "(then \n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
+              , "(then\n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
               , "(else (i32.const 0))"
               ]
             n ->
               [ printComparator caseExpr (fst $ head patterns)
-              , "(then \n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
-              , "(else \n" ++
+              , "(then\n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
+              , "(else\n" ++
                 indent (printCase caseExpr (tail patterns)) 2 ++ "\n)"
               ]
         printComparator a b =
