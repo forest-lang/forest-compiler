@@ -206,6 +206,7 @@ printWasm expr =
             1 ->
               [ printComparator caseExpr (fst $ head patterns)
               , "(then \n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
+              , "(else (i32.const 0))"
               ]
             n ->
               [ printComparator caseExpr (fst $ head patterns)
