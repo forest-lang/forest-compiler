@@ -14,15 +14,16 @@ import Data.Char
 import Data.Functor.Identity
 import Data.List (intercalate)
 import Data.Text (Text)
+import Data.Void (Void)
 import Debug.Trace
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Expr
 
-type Parser = Parsec Dec String
+type Parser = Parsec Void String
 
-type ParseError' = ParseError Char Dec
+type ParseError' = ParseError Char Void
 
 data OperatorExpr
   = Add
