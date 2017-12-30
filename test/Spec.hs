@@ -74,9 +74,9 @@ main :: IO ()
 main =
   hspec $ do
     describe "Forest haskell syntax" $ do
-      it "can print and reparse arbitrary expressions losslessly" $
+      it "prints and reparses arbitrary expressions losslessly" $
         property propParseAndPrint
-      it "can parse a module with multple assignments" $ do
+      it "parses a module with multple assignments" $ do
         code <- readFixture "multiple-assignments"
         let parseResult = parseExpressionFromString code
         let expected =
@@ -88,6 +88,21 @@ main =
                   "half"
                   ["a"]
                   (Infix Divide (Identifier "a") (Number 2))
+              ]
+        parseResult `shouldBe` Right expected
+      it "parses an assignment with a case statement" $ do
+        code <- readFixture "case-statement"
+        let parseResult = parseExpressionFromString code
+        let expected =
+              [ Assignment
+                  "test"
+                  ["n"]
+                  (Case
+                     (Identifier "n")
+                     [ (Number 0, Number 1)
+                     , (Number 1, Number 1)
+                     , (Identifier "n", Infix Add (Identifier "n") (Number 1))
+                     ])
               ]
         parseResult `shouldBe` Right expected
     -- it "parses calls in cases correctly" $ do
