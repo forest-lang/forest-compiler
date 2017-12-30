@@ -105,6 +105,25 @@ main =
                      ])
               ]
         parseResult `shouldBe` Right expected
+      it "parses an assignment with a case statement followed by another assignment" $ do
+        code <- readFixture "case-statement-and-more"
+        let parseResult = parseExpressionFromString code
+        let expected =
+              [ Assignment
+                  "test"
+                  ["n"]
+                  (Case
+                     (Identifier "n")
+                     [ (Number 0, Number 1)
+                     , (Number 1, Number 1)
+                     , (Identifier "n", Identifier "n")
+                     ])
+              , Assignment
+                  "double"
+                  ["a"]
+                  (Infix Multiply (Identifier "a") (Number 2))
+              ]
+        parseResult `shouldBe` Right expected
     -- it "parses calls in cases correctly" $ do
     --   let expression = Case (Identifier "a") [(Number 0,Call "f" [Identifier "g"]),(Identifier "z",Identifier "a")]
     --   let printedCode = printExpression expression
