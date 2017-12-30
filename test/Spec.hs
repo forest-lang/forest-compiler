@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 import Control.Monad
 import Test.Hspec
 import Test.QuickCheck
@@ -8,8 +10,7 @@ instance Arbitrary Expression where
   arbitrary = genExpression
 
 genExpression :: Gen Expression
-genExpression =
-  oneof [genIdentifier, genNumber, genAssignment, genInfix, genCall, genCase]
+genExpression = oneof [genIdentifier, genNumber, genAssignment, genInfix]
 
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
@@ -50,15 +51,13 @@ genCall = do
   args <- listOf1 genIdentifier
   return $ Call name args
 
-(>*<) :: Gen a -> Gen b -> Gen (a,b)
+(>*<) :: Gen a -> Gen b -> Gen (a, b)
 x >*< y = liftM2 (,) x y
 
 genCase :: Gen Expression
 genCase = do
   caseExpr <- genExpression
-
   cases <- listOf1 genCase
-
   return $ Case caseExpr cases
   where
     genCase = oneof [genNumber, genIdentifier] >*< genExpression
@@ -75,11 +74,27 @@ main :: IO ()
 main =
   hspec $ do
     describe "Forest haskell syntax" $ do
-      it "can print and reparse arbitrary expressions losslessly" $ do
-       property propParseAndPrint
-      it "parses calls in cases correctly" $ do
-        let expression = Case (Identifier "a") [(Number 0,Call "f" [Identifier "g"]),(Identifier "z",Identifier "a")]
-        let printedCode = printExpression expression
-        let reparsed = parseExpressionFromString printedCode
+      it "can print and reparse arbitrary expressions losslessly" $
+        property propParseAndPrint
+      it "can parse a module with multple assignments" $ do
+        code <- readFixture "multiple-assignments"
+        let parseResult = parseExpressionFromString code
+        let expected =
+              [ Assignment
+                  "double"
+                  ["a"]
+                  (Infix Multiply (Identifier "a") (Number 2))
+              , Assignment
+                  "half"
+                  ["a"]
+                  (Infix Divide (Identifier "a") (Number 2))
+              ]
+        parseResult `shouldBe` Right expected
+    -- it "parses calls in cases correctly" $ do
+    --   let expression = Case (Identifier "a") [(Number 0,Call "f" [Identifier "g"]),(Identifier "z",Identifier "a")]
+    --   let printedCode = printExpression expression
+    --   let reparsed = parseExpressionFromString printedCode
+    --   reparsed `shouldBe` Right [expression]
 
-        reparsed `shouldBe` Right [expression]
+readFixture :: String -> IO String
+readFixture name = readFile ("test/fixtures/" ++ name ++ ".tree")
