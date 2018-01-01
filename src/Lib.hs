@@ -72,10 +72,19 @@ sc = L.space (void $ takeWhile1P Nothing f) lineComment empty
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
+exprWithoutCall :: Parser Expression
+exprWithoutCall = makeExprParser (lexeme termWithoutCall) table <?> "expression"
+
 expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
-term = dbg "term" $ number <|> identifier
+term = sc *> (parens <|> call <|> number)
+termWithoutCall = sc *> (parens <|> identifier <|> number)
+
+symbol    = L.symbol sc
+parens    = BetweenParens <$> between (symbol "(") (symbol ")") expr
+
+
 
 table =
   [ [InfixL (Infix Divide <$ char '/')]
@@ -89,6 +98,16 @@ number = Number <$> (sc *> L.decimal)
 
 pIdent :: Parser Ident
 pIdent = ident <$> some letterChar
+
+call :: Parser Expression
+call = do
+  name <- pIdent
+
+  args <- many (try exprWithoutCall)
+
+  return $ case length args of
+    0 -> Identifier name
+    _ -> Call name args
 
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
@@ -117,7 +136,7 @@ topLevelDeclaration :: Parser Expression
 topLevelDeclaration = L.nonIndented scn declaration
 
 parseModule :: Parser Module
-parseModule = many (dbg "topLevelDeclaration" topLevelDeclaration) <* eof
+parseModule = many topLevelDeclaration <* eof
 
 parseExpressionFromString = parse parseModule ""
 
