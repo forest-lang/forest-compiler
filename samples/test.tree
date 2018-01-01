@@ -1,1 +1,5 @@
-a b = b + 3 * 2
+add a b = a + b
+
+addFive n = add n 5
+
+main = addFive 10
