@@ -51,6 +51,9 @@ pItemList = L.nonIndented scn (L.indentBlock scn p)
       header <- pItem
       return (L.IndentSome Nothing (return . (header, )) pComplexItem)
 
+myParser :: Parser [(String, [(String, [String])])];
+myParser = many pItemList <* eof
+
 parser :: Parser (String, [(String, [String])])
 parser = pItemList <* eof
 

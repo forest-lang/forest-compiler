@@ -3,6 +3,7 @@ module Main where
 import Lib
 import System.Environment
 import Data.Maybe
+import Text.Megaparsec.Error
 
 
 head' :: [a] -> Maybe a
@@ -26,6 +27,6 @@ main = do
       case result of
         Right a ->
           putStrLn $ printWasm a
-        Left err -> putStrLn $ "Dun goofed" ++ show err
+        Left err -> putStrLn $ "Syntax error in " ++ filename ++ "\n" ++ parseErrorPretty' contents err
     Nothing -> putStrLn "please provide a file to compile"
 
