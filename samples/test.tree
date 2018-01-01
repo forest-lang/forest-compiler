@@ -1,1 +1,1 @@
-update acc val = f acc val
+a b = b + 3 * 2

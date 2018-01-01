@@ -10,7 +10,8 @@ module Lib
   , expr
   ) where
 
-import Data.Char
+import Control.Applicative (empty)
+import Control.Monad (void)
 import Data.Functor.Identity
 import Data.List (intercalate)
 import Data.Text (Text)
@@ -20,6 +21,7 @@ import Debug.Trace
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Expr
+import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void String
 
@@ -54,21 +56,26 @@ data Expression
   | Negative Expression
   deriving (Show, Eq)
 
+type Module = [Expression]
+
+lineComment :: Parser ()
+lineComment = L.skipLineComment "#"
+
+scn :: Parser ()
+scn = L.space space1 lineComment empty
+
+sc :: Parser ()
+sc = L.space (void $ takeWhile1P Nothing f) lineComment empty
+  where
+    f x = x == ' ' || x == '\t'
+
+lexeme :: Parser a -> Parser a
+lexeme = L.lexeme sc
+
 expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
-lexeme :: Parser a -> Parser a
-lexeme parser = space >> parser <* space
-
-term =
-  parens <|> digit <|> try case' <|> try declaration <|> try call <|>
-  identifier <?> "term"
-
-parens = do
-  char '('
-  expr <- expr
-  char ')'
-  return $ BetweenParens expr
+term = dbg "term" $ number <|> identifier
 
 table =
   [ [InfixL (Infix Divide <$ char '/')]
@@ -77,67 +84,44 @@ table =
   , [InfixL (Infix Subtract <$ char '-')]
   ]
 
-digit :: Parser Expression
-digit = do
-  value <- some digitChar
-  return $ Number (read value)
+number :: Parser Expression
+number = Number <$> (sc *> L.decimal)
+
+pIdent :: Parser Ident
+pIdent = ident <$> some letterChar
+
+identifier :: Parser Expression
+identifier = Identifier <$> pIdent
 
 declaration :: Parser Expression
 declaration = do
-  name <- many letterChar
-  arguments <- lexeme $ many parseArgument
-  lexeme $ char '='
-  value <- expr
-  return $ Assignment (ident name) arguments value
-  where
-    parseArgument = ident <$> lexeme (some letterChar)
+  sc
 
-call :: Parser Expression
-call = do
-  name <- parseIdent
-  space
-  arguments <- some parseArgument
-  return $ Call name arguments
-  where
-    parseArgument = lexeme expr
+  name <- pIdent
 
-case' :: Parser Expression
-case' = do
-  lexeme $ string "case"
-  expr <- expr
-  lexeme $ string "of"
-  patterns <- some parsePattern
-  return $ Case expr patterns
-  where
-    parsePattern = do
-      pattern' <- digit <|> identifier
-      lexeme $ string "->"
-      expr <- expr
-      return (pattern', expr)
+  args <- many (try (sc *> pIdent))
 
-identifier :: Parser Expression
-identifier = Identifier <$> parseIdent
+  sc
 
-parseIdent :: Parser Ident
-parseIdent = ident <$> some letterChar
+  char '='
 
-parseString :: Parser [Expression]
-parseString = do
-  expr <- lexeme $ some expr
-  eof
-  return expr
+  sc
 
-parseExpressionFromString = parse parseString ""
+  expression <- expr
 
-operatorToString :: OperatorExpr -> String
-operatorToString op =
-  case op of
-    Add -> "+"
-    Subtract -> "-"
-    Multiply -> "*"
-    Divide -> "/"
+  scn
 
-printModule :: [Expression] -> String
+  return $ Assignment name args expression
+
+topLevelDeclaration :: Parser Expression
+topLevelDeclaration = L.nonIndented scn declaration
+
+parseModule :: Parser Module
+parseModule = many (dbg "topLevelDeclaration" topLevelDeclaration) <* eof
+
+parseExpressionFromString = parse parseModule ""
+
+printModule :: Module -> String
 printModule expressions = intercalate "\n\n" $ map printExpression expressions
 
 printExpression :: Expression -> String
@@ -231,3 +215,11 @@ printWasm expr =
         Subtract -> "i32.sub"
         Multiply -> "i32.mul"
         Divide -> "i32.div_s"
+
+operatorToString :: OperatorExpr -> String
+operatorToString op =
+  case op of
+    Add -> "+"
+    Subtract -> "-"
+    Multiply -> "*"
+    Divide -> "/"
