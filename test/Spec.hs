@@ -6,8 +6,14 @@ import Test.QuickCheck
 
 import Lib
 
+instance Arbitrary Module where
+  arbitrary = genModule
+
 instance Arbitrary Expression where
   arbitrary = genExpression
+
+genModule :: Gen Module
+genModule = Module <$> listOf1 genAssignment
 
 genExpression :: Gen Expression
 genExpression = oneof [genIdentifier, genNumber, genAssignment, genInfix]
@@ -62,12 +68,12 @@ genCase = do
   where
     genCase = oneof [genNumber, genIdentifier] >*< genExpression
 
-propParseAndPrint :: Expression -> Bool
+propParseAndPrint :: Module -> Bool
 propParseAndPrint expr =
-  let output = printExpression expr
+  let output = printModule expr
       reparsedExpr = parseExpressionFromString output
   in case reparsedExpr of
-       Right newExpr -> head newExpr == expr
+       Right newExpr -> newExpr == expr
        Left err -> False
 
 main :: IO ()
@@ -80,49 +86,59 @@ main =
         code <- readFixture "multiple-assignments"
         let parseResult = parseExpressionFromString code
         let expected =
-              [ Assignment
-                  "double"
-                  ["a"]
-                  (Infix Multiply (Identifier "a") (Number 2))
-              , Assignment
-                  "half"
-                  ["a"]
-                  (Infix Divide (Identifier "a") (Number 2))
-              ]
+              Module
+                [ Assignment
+                    "double"
+                    ["a"]
+                    (Infix Multiply (Identifier "a") (Number 2))
+                , Assignment
+                    "half"
+                    ["a"]
+                    (Infix Divide (Identifier "a") (Number 2))
+                ]
         parseResult `shouldBe` Right expected
       it "parses an assignment with a case statement" $ do
         code <- readFixture "case-statement"
         let parseResult = parseExpressionFromString code
         let expected =
-              [ Assignment
-                  "test"
-                  ["n"]
-                  (Case
-                     (Identifier "n")
-                     [ (Number 0, Number 1)
-                     , (Number 1, Number 1)
-                     , (Identifier "n", Infix Add (Identifier "n") (Number 1))
-                     ])
-              ]
+              Module
+                [ Assignment
+                    "test"
+                    ["n"]
+                    (Case
+                       (Identifier "n")
+                       [ (Number 0, Number 1)
+                       , (Number 1, Number 1)
+                       , (Identifier "n", Infix Add (Identifier "n") (Number 1))
+                       ])
+                ]
         parseResult `shouldBe` Right expected
-      it "parses an assignment with a case statement followed by another assignment" $ do
+      it
+        "parses an assignment with a case statement followed by another assignment" $ do
         code <- readFixture "case-statement-and-more"
         let parseResult = parseExpressionFromString code
         let expected =
-              [ Assignment
-                  "test"
-                  ["n"]
-                  (Case
-                     (Identifier "n")
-                     [ (Number 0, Number 1)
-                     , (Number 1, Number 1)
-                     , (Identifier "n", Identifier "n")
-                     ])
-              , Assignment
-                  "double"
-                  ["a"]
-                  (Infix Multiply (Identifier "a") (Number 2))
-              ]
+              Module
+                [ Assignment
+                    "test"
+                    ["n"]
+                    (Case
+                       (Identifier "n")
+                       [ (Number 0, Number 1)
+                       , (Number 1, Number 1)
+                       , (Identifier "n", Identifier "n")
+                       ])
+                , Assignment
+                    "double"
+                    ["x"]
+                    (Infix Multiply (Identifier "x") (Number 2))
+                ]
+        parseResult `shouldBe` Right expected
+      it "parses nested assignment" $ do
+        code <- readFixture "nested-assignment"
+        let parseResult = parseExpressionFromString code
+        let expected =
+              Module [Assignment "a" [] (Assignment "b" [] (Identifier "c"))]
         parseResult `shouldBe` Right expected
     -- it "parses calls in cases correctly" $ do
     --   let expression = Case (Identifier "a") [(Number 0,Call "f" [Identifier "g"]),(Identifier "z",Identifier "a")]
