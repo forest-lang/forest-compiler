@@ -21,8 +21,8 @@ import Debug.Trace
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import Text.Megaparsec.Expr
 import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Megaparsec.Expr
 
 type Parser = Parsec Void String
 
@@ -57,7 +57,8 @@ data Expression
   | Negative Expression
   deriving (Show, Eq)
 
-newtype Module = Module [Expression]
+newtype Module =
+  Module [Expression]
   deriving (Show, Eq)
 
 lineComment :: Parser ()
@@ -81,10 +82,13 @@ expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
 term = sc *> (try pCase <|> try declaration <|> parens <|> call <|> number)
-termWithoutCall = sc *> (try pCase <|> try declaration <|> parens <|> identifier <|> number)
 
-symbol    = L.symbol sc
-parens    = BetweenParens <$> between (symbol "(") (symbol ")") expr
+termWithoutCall =
+  sc *> (try pCase <|> try declaration <|> parens <|> identifier <|> number)
+
+symbol = L.symbol sc
+
+parens = BetweenParens <$> between (symbol "(") (symbol ")") expr
 
 table =
   [ [InfixL (Infix Divide <$ char '/')]
@@ -105,49 +109,38 @@ rws = ["case", "of"]
 pIdent :: Parser Ident
 pIdent = (lexeme . try) (p >>= check)
   where
-    p       = (:) <$> letterChar <*> many alphaNumChar
-    check x = if x `elem` rws
-                then fail $ "keyword " ++ show x ++ " cannot be an identifier"
-                else return x
+    p = (:) <$> letterChar <*> many alphaNumChar
+    check x =
+      if x `elem` rws
+        then fail $ "keyword " ++ show x ++ " cannot be an identifier"
+        else return x
 
 pCase :: Parser Expression
 pCase = L.indentBlock scn p
   where
     p = do
       symbol "case"
-
       sc
-
       caseExpr <- expr
-
       sc
-
       symbol "of"
-
       return $ L.IndentSome Nothing (return . Case caseExpr) caseBranch
     caseBranch = do
       sc
-
       pattern' <- number <|> identifier
-
       sc
-
       symbol "->"
-
       branchExpr <- expr
-
       return (pattern', branchExpr)
-
 
 call :: Parser Expression
 call = do
   name <- pIdent
-
   args <- many (try exprWithoutCall)
-
-  return $ case length args of
-    0 -> Identifier name
-    _ -> Call name args
+  return $
+    case length args of
+      0 -> Identifier name
+      _ -> Call name args
 
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
@@ -155,21 +148,13 @@ identifier = Identifier <$> pIdent
 declaration :: Parser Expression
 declaration = do
   sc
-
   name <- pIdent
-
   args <- many (try (sc *> pIdent))
-
   sc
-
   symbol "="
-
   scn
-
   expression <- expr
-
   scn
-
   return $ Assignment name args expression
 
 topLevelDeclaration :: Parser Expression
@@ -181,7 +166,8 @@ parseModule = Module <$> many topLevelDeclaration <* eof
 parseExpressionFromString = parse parseModule ""
 
 printModule :: Module -> String
-printModule (Module expressions) = intercalate "\n\n" $ map printExpression expressions
+printModule (Module expressions) =
+  intercalate "\n\n" $ map printExpression expressions
 
 printExpression :: Expression -> String
 printExpression expr =
@@ -208,7 +194,8 @@ indent str level =
 
 printWasm :: Module -> String
 printWasm (Module expressions) =
-  "(module\n" ++ indent (intercalate "\n" $ map printWasmExpr expressions) 2 ++ "\n)"
+  "(module\n" ++
+  indent (intercalate "\n" $ map printWasmExpr expressions) 2 ++ "\n)"
   where
     printWasmExpr expr =
       case expr of

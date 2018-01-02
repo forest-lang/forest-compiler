@@ -140,11 +140,6 @@ main =
         let expected =
               Module [Assignment "a" [] (Assignment "b" [] (Identifier "c"))]
         parseResult `shouldBe` Right expected
-    -- it "parses calls in cases correctly" $ do
-    --   let expression = Case (Identifier "a") [(Number 0,Call "f" [Identifier "g"]),(Identifier "z",Identifier "a")]
-    --   let printedCode = printExpression expression
-    --   let reparsed = parseExpressionFromString printedCode
-    --   reparsed `shouldBe` Right [expression]
 
 readFixture :: String -> IO String
 readFixture name = readFile ("test/fixtures/" ++ name ++ ".tree")
