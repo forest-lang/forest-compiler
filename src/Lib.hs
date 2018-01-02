@@ -16,6 +16,7 @@ import Control.Monad (void)
 import Data.Functor.Identity
 import Data.List (intercalate)
 import Data.Text (Text)
+import Data.Semigroup
 import Data.Void (Void)
 import Debug.Trace
 
@@ -176,7 +177,7 @@ printExpression expr =
     Infix op expr expr2 ->
       unwords [printExpression expr, operatorToString op, printExpression expr2]
     Assignment name args expr ->
-      name ++ " " ++ unwords args ++ " = \n" ++ indent (printExpression expr) 2
+      unwords ([name] <> args <> ["="]) ++ "\n" ++ indent (printExpression expr) 2
     Identifier name -> name
     Call name args -> name ++ " " ++ unwords (printExpression <$> args)
     Case caseExpr patterns ->
