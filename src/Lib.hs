@@ -6,6 +6,7 @@ module Lib
   , printModule
   , parseExpressionFromString
   , Expression(..)
+  , Module(..)
   , OperatorExpr(..)
   , expr
   ) where
@@ -56,7 +57,8 @@ data Expression
   | Negative Expression
   deriving (Show, Eq)
 
-type Module = [Expression]
+newtype Module = Module [Expression]
+  deriving (Show, Eq)
 
 lineComment :: Parser ()
 lineComment = L.skipLineComment "#"
@@ -78,13 +80,11 @@ exprWithoutCall = makeExprParser (lexeme termWithoutCall) table <?> "expression"
 expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
-term = sc *> (parens <|> call <|> number)
-termWithoutCall = sc *> (parens <|> identifier <|> number)
+term = sc *> (try pCase <|> try declaration <|> parens <|> call <|> number)
+termWithoutCall = sc *> (try pCase <|> try declaration <|> parens <|> identifier <|> number)
 
 symbol    = L.symbol sc
 parens    = BetweenParens <$> between (symbol "(") (symbol ")") expr
-
-
 
 table =
   [ [InfixL (Infix Divide <$ char '/')]
@@ -96,8 +96,48 @@ table =
 number :: Parser Expression
 number = Number <$> (sc *> L.decimal)
 
+rword :: String -> Parser ()
+rword w = lexeme (string w *> notFollowedBy alphaNumChar)
+
+rws :: [String] -- list of reserved words
+rws = ["case", "of"]
+
 pIdent :: Parser Ident
-pIdent = ident <$> some letterChar
+pIdent = (lexeme . try) (p >>= check)
+  where
+    p       = (:) <$> letterChar <*> many alphaNumChar
+    check x = if x `elem` rws
+                then fail $ "keyword " ++ show x ++ " cannot be an identifier"
+                else return x
+
+pCase :: Parser Expression
+pCase = L.indentBlock scn p
+  where
+    p = do
+      symbol "case"
+
+      sc
+
+      caseExpr <- expr
+
+      sc
+
+      symbol "of"
+
+      return $ L.IndentSome Nothing (return . Case caseExpr) caseBranch
+    caseBranch = do
+      sc
+
+      pattern' <- number <|> identifier
+
+      sc
+
+      symbol "->"
+
+      branchExpr <- expr
+
+      return (pattern', branchExpr)
+
 
 call :: Parser Expression
 call = do
@@ -122,9 +162,9 @@ declaration = do
 
   sc
 
-  char '='
+  symbol "="
 
-  sc
+  scn
 
   expression <- expr
 
@@ -136,12 +176,12 @@ topLevelDeclaration :: Parser Expression
 topLevelDeclaration = L.nonIndented scn declaration
 
 parseModule :: Parser Module
-parseModule = many topLevelDeclaration <* eof
+parseModule = Module <$> many topLevelDeclaration <* eof
 
 parseExpressionFromString = parse parseModule ""
 
 printModule :: Module -> String
-printModule expressions = intercalate "\n\n" $ map printExpression expressions
+printModule (Module expressions) = intercalate "\n\n" $ map printExpression expressions
 
 printExpression :: Expression -> String
 printExpression expr =
@@ -166,9 +206,9 @@ indent :: String -> Int -> String
 indent str level =
   intercalate "\n" $ map (\line -> replicate level ' ' ++ line) (lines str)
 
-printWasm :: [Expression] -> String
-printWasm expr =
-  "(module\n" ++ indent (intercalate "\n" $ map printWasmExpr expr) 2 ++ "\n)"
+printWasm :: Module -> String
+printWasm (Module expressions) =
+  "(module\n" ++ indent (intercalate "\n" $ map printWasmExpr expressions) 2 ++ "\n)"
   where
     printWasmExpr expr =
       case expr of
