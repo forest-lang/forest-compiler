@@ -82,7 +82,7 @@ exprWithoutCall = makeExprParser (lexeme termWithoutCall) table <?> "expression"
 expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
-term = sc *> (termWithoutCall <|> call)
+term = sc *> (try pCase <|> try declaration <|> parens <|> call <|> number)
 
 termWithoutCall =
   sc *> (try pCase <|> try declaration <|> parens <|> identifier <|> number)
@@ -121,12 +121,16 @@ pCase = L.indentBlock scn p
   where
     p = do
       symbol "case"
+      sc
       caseExpr <- expr
+      sc
       symbol "of"
       return $ L.IndentSome Nothing (return . Case caseExpr) caseBranch
     caseBranch = do
-      pattern' <- sc *> number <|> identifier
-      sc *> symbol "->"
+      sc
+      pattern' <- number <|> identifier
+      sc
+      symbol "->"
       branchExpr <- expr
       return (pattern', branchExpr)
 
