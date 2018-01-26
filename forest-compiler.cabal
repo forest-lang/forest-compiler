@@ -14,6 +14,7 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
+  ghc-options:       -Werror -Wunused-matches -Wunused-local-binds -Wmissing-signatures -Wincomplete-patterns -Wincomplete-uni-patterns -Wincomplete-record-updates
   hs-source-dirs:      src
   exposed-modules:     Lib
   build-depends:       base >= 4.7 && < 5
