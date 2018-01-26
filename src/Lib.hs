@@ -13,12 +13,11 @@ module Lib
 
 import Control.Applicative (empty)
 import Control.Monad (void)
-import Data.Functor.Identity
+import Data.Functor.Identity()
 import Data.List (intercalate)
-import Data.Text (Text)
+import Data.Text()
 import Data.Semigroup
 import Data.Void (Void)
-import Debug.Trace
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -37,9 +36,6 @@ data OperatorExpr
   deriving (Show, Eq)
 
 type Ident = String
-
-ident :: String -> Ident
-ident s = s
 
 data Expression
   = Identifier Ident
@@ -82,15 +78,20 @@ exprWithoutCall = makeExprParser (lexeme termWithoutCall) table <?> "expression"
 expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
+term :: Parser Expression
 term = sc *> (try pCase <|> try declaration <|> parens <|> call <|> number)
 
+termWithoutCall :: Parser Expression
 termWithoutCall =
   sc *> (try pCase <|> try declaration <|> parens <|> identifier <|> number)
 
+symbol :: String -> Parser String
 symbol = L.symbol sc
 
+parens :: Parser Expression
 parens = BetweenParens <$> between (symbol "(") (symbol ")") expr
 
+table :: [[Operator Parser Expression]]
 table =
   [ [InfixL (Infix Divide <$ char '/')]
   , [InfixL (Infix Multiply <$ char '*')]
@@ -164,6 +165,7 @@ topLevelDeclaration = L.nonIndented scn declaration
 parseModule :: Parser Module
 parseModule = Module <$> many topLevelDeclaration <* eof
 
+parseExpressionFromString :: String -> Either ParseError' Module
 parseExpressionFromString = parse parseModule ""
 
 printModule :: Module -> String
@@ -173,6 +175,7 @@ printModule (Module expressions) =
 printExpression :: Expression -> String
 printExpression expr =
   case expr of
+    Negative n -> "-" ++ show n
     Number n -> show n
     Infix op expr expr2 ->
       unwords [printExpression expr, operatorToString op, printExpression expr2]
@@ -201,6 +204,7 @@ printWasm (Module expressions) =
     printWasmExpr expr =
       case expr of
         Number n -> "(i32.const " ++ show n ++ ")"
+        Negative n -> "(i32.const -" ++ show n ++ ")"
         Assignment name args expr ->
           "(export \"" ++
           name ++
@@ -229,9 +233,7 @@ printWasm (Module expressions) =
         printCase caseExpr patterns =
           "(if (result i32)\n" ++
           indent (printPatterns caseExpr patterns) 2 ++ "\n)"
-        combinePatterns acc val = acc ++ "\n" ++ printPattern val
-        printPattern (patternExpr, branchExpr) = printWasmExpr branchExpr
-        firstCase patterns = fst (head patterns)
+        printPattern (_, branchExpr) = printWasmExpr branchExpr
         printPatterns caseExpr patterns =
           intercalate "\n" $
           case length patterns of
@@ -240,7 +242,7 @@ printWasm (Module expressions) =
               , "(then\n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
               , "(else (i32.const 0))"
               ]
-            n ->
+            _ ->
               [ printComparator caseExpr (fst $ head patterns)
               , "(then\n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
               , "(else\n" ++
