@@ -78,68 +78,68 @@ propParseAndPrint expr =
 
 main :: IO ()
 main =
-  hspec $ do
-    describe "Forest haskell syntax" $ do
-      it "prints and reparses arbitrary expressions losslessly" $
-        property propParseAndPrint
-      it "parses a module with multple assignments" $ do
-        code <- readFixture "multiple-assignments"
-        let parseResult = parseExpressionFromString code
-        let expected =
-              Module
-                [ Assignment
-                    "double"
-                    ["a"]
-                    (Infix Multiply (Identifier "a") (Number 2))
-                , Assignment
-                    "half"
-                    ["a"]
-                    (Infix Divide (Identifier "a") (Number 2))
-                ]
-        parseResult `shouldBe` Right expected
-      it "parses an assignment with a case statement" $ do
-        code <- readFixture "case-statement"
-        let parseResult = parseExpressionFromString code
-        let expected =
-              Module
-                [ Assignment
-                    "test"
-                    ["n"]
-                    (Case
-                       (Identifier "n")
-                       [ (Number 0, Number 1)
-                       , (Number 1, Number 1)
-                       , (Identifier "n", Infix Add (Identifier "n") (Number 1))
-                       ])
-                ]
-        parseResult `shouldBe` Right expected
-      it
-        "parses an assignment with a case statement followed by another assignment" $ do
-        code <- readFixture "case-statement-and-more"
-        let parseResult = parseExpressionFromString code
-        let expected =
-              Module
-                [ Assignment
-                    "test"
-                    ["n"]
-                    (Case
-                       (Identifier "n")
-                       [ (Number 0, Number 1)
-                       , (Number 1, Number 1)
-                       , (Identifier "n", Identifier "n")
-                       ])
-                , Assignment
-                    "double"
-                    ["x"]
-                    (Infix Multiply (Identifier "x") (Number 2))
-                ]
-        parseResult `shouldBe` Right expected
-      it "parses nested assignment" $ do
-        code <- readFixture "nested-assignment"
-        let parseResult = parseExpressionFromString code
-        let expected =
-              Module [Assignment "a" [] (Assignment "b" [] (Identifier "c"))]
-        parseResult `shouldBe` Right expected
+  hspec $
+  describe "Forest haskell syntax" $ do
+    it "prints and reparses arbitrary expressions losslessly" $
+      property propParseAndPrint
+    it "parses a module with multple assignments" $ do
+      code <- readFixture "multiple-assignments"
+      let parseResult = parseExpressionFromString code
+      let expected =
+            Module
+              [ Assignment
+                  "double"
+                  ["a"]
+                  (Infix Multiply (Identifier "a") (Number 2))
+              , Assignment
+                  "half"
+                  ["a"]
+                  (Infix Divide (Identifier "a") (Number 2))
+              ]
+      parseResult `shouldBe` Right expected
+    it "parses an assignment with a case statement" $ do
+      code <- readFixture "case-statement"
+      let parseResult = parseExpressionFromString code
+      let expected =
+            Module
+              [ Assignment
+                  "test"
+                  ["n"]
+                  (Case
+                     (Identifier "n")
+                     [ (Number 0, Number 1)
+                     , (Number 1, Number 1)
+                     , (Identifier "n", Infix Add (Identifier "n") (Number 1))
+                     ])
+              ]
+      parseResult `shouldBe` Right expected
+    it
+      "parses an assignment with a case statement followed by another assignment" $ do
+      code <- readFixture "case-statement-and-more"
+      let parseResult = parseExpressionFromString code
+      let expected =
+            Module
+              [ Assignment
+                  "test"
+                  ["n"]
+                  (Case
+                     (Identifier "n")
+                     [ (Number 0, Number 1)
+                     , (Number 1, Number 1)
+                     , (Identifier "n", Identifier "n")
+                     ])
+              , Assignment
+                  "double"
+                  ["x"]
+                  (Infix Multiply (Identifier "x") (Number 2))
+              ]
+      parseResult `shouldBe` Right expected
+    it "parses nested assignment" $ do
+      code <- readFixture "nested-assignment"
+      let parseResult = parseExpressionFromString code
+      let expected =
+            Module [Assignment "a" [] (Assignment "b" [] (Identifier "c"))]
+      parseResult `shouldBe` Right expected
 
 readFixture :: String -> IO String
 readFixture name = readFile ("test/fixtures/" ++ name ++ ".tree")

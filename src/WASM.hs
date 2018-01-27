@@ -28,7 +28,7 @@ data Expression
   | Call String
          [Expression]
   | NamedCall String
-         [Expression]
+              [Expression]
   | If Expression
        Expression
        (Maybe Expression)
@@ -49,7 +49,7 @@ forestExprToWasm fexpr =
     F.Identifier i -> GetLocal i
     F.Number n -> Const n
     F.Assignment name args fexpr -> Func name args (forestExprToWasm fexpr)
-    F.BetweenParens fexpr -> (forestExprToWasm fexpr)
+    F.BetweenParens fexpr -> forestExprToWasm fexpr
     F.Infix operator a b ->
       Call (funcForOperator operator) [forestExprToWasm a, forestExprToWasm b]
     F.Call name arguments -> NamedCall name (map forestExprToWasm arguments)
@@ -59,7 +59,7 @@ forestExprToWasm fexpr =
     constructCase :: Expression -> [(Expression, Expression)] -> Expression
     constructCase caseExpr patterns =
       case patterns of
-        (x: []) ->
+        [x] ->
           If (Call "i32.eq" [caseExpr, fst x]) (snd (head patterns)) Nothing
         (x:xs) ->
           If
@@ -87,22 +87,24 @@ printWasm (Module expressions) =
         Const n -> "(i32.const " ++ show n ++ ")"
         GetLocal name -> "(get_local $" ++ name ++ ")"
         Call name args ->
-          "(" ++ name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
+          "(" ++
+          name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
         NamedCall name args ->
-          "(call $" ++ name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
+          "(call $" ++
+          name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
         If conditional a b ->
           unlines
             ([ "(if (result i32)"
              , indent2 $ printWasmExpr conditional
              , indent2 $ printWasmExpr a
              ] <>
-             [indent2 $ fromMaybe "(i32.const 0)" $ printWasmExpr <$> b, ")"])
+             [indent2 $ maybe "(i32.const 0)" printWasmExpr b, ")"])
         Func name args body ->
           unlines
             [ "(export \"" ++ name ++ "\" (func $" ++ name ++ "))"
             , "(func $" ++
               name ++
-              (unwords $ map (\x -> " (param $" ++ x ++ " i32)") args) ++
+              unwords (map (\x -> " (param $" ++ x ++ " i32)") args) ++
               " (result i32)"
             , indent2 $ unlines ["(return", indent2 $ printWasmExpr body, ")"]
             , ")"
