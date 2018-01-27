@@ -17,6 +17,7 @@ library
   ghc-options:       -Werror -Wunused-matches -Wunused-local-binds -Wmissing-signatures -Wincomplete-patterns -Wincomplete-uni-patterns -Wincomplete-record-updates
   hs-source-dirs:      src
   exposed-modules:     Lib
+                     , WASM
   build-depends:       base >= 4.7 && < 5
                      , megaparsec
                      , text

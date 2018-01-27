@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Lib
-  ( printWasm
-  , printExpression
+  ( printExpression
   , printModule
   , parseExpressionFromString
   , Expression(..)
@@ -51,7 +50,6 @@ data Expression
   | Case Expression
          [(Expression, Expression)]
   | BetweenParens Expression
-  | Negative Expression
   deriving (Show, Eq)
 
 newtype Module =
@@ -175,7 +173,6 @@ printModule (Module expressions) =
 printExpression :: Expression -> String
 printExpression expr =
   case expr of
-    Negative n -> "-" ++ show n
     Number n -> show n
     Infix op expr expr2 ->
       unwords [printExpression expr, operatorToString op, printExpression expr2]
@@ -195,75 +192,6 @@ printExpression expr =
 indent :: String -> Int -> String
 indent str level =
   intercalate "\n" $ map (\line -> replicate level ' ' ++ line) (lines str)
-
-printWasm :: Module -> String
-printWasm (Module expressions) =
-  "(module\n" ++
-  indent (intercalate "\n" $ map printWasmExpr expressions) 2 ++ "\n)"
-  where
-    printWasmExpr expr =
-      case expr of
-        Number n -> "(i32.const " ++ show n ++ ")"
-        Negative n -> "(i32.const -" ++ show n ++ ")"
-        Assignment name args expr ->
-          "(export \"" ++
-          name ++
-          "\" (func $" ++
-          name ++
-          "))\n(func $" ++
-          name ++
-          " " ++
-          paramsString args ++
-          " " ++
-          "(result i32)\n" ++
-          indent ("(return\n" ++ indent (printWasmExpr expr) 2 ++ "\n)") 2 ++
-          "\n)"
-        Infix op expr expr2 ->
-          "(" ++
-          opString op ++
-          "\n" ++
-          indent (printWasmExpr expr ++ "\n" ++ printWasmExpr expr2) 2 ++ "\n)"
-        Identifier name -> "(get_local $" ++ name ++ ")"
-        Call name args ->
-          "(call $" ++
-          name ++ "\n" ++ indent (unlines (printWasmExpr <$> args)) 2 ++ "\n)"
-        Case caseExpr patterns -> printCase caseExpr patterns
-        BetweenParens expr -> printWasmExpr expr
-      where
-        printCase caseExpr patterns =
-          "(if (result i32)\n" ++
-          indent (printPatterns caseExpr patterns) 2 ++ "\n)"
-        printPattern (_, branchExpr) = printWasmExpr branchExpr
-        printPatterns caseExpr patterns =
-          intercalate "\n" $
-          case length patterns of
-            1 ->
-              [ printComparator caseExpr (fst $ head patterns)
-              , "(then\n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
-              , "(else (i32.const 0))"
-              ]
-            _ ->
-              [ printComparator caseExpr (fst $ head patterns)
-              , "(then\n" ++ indent (printPattern (head patterns)) 2 ++ "\n)"
-              , "(else\n" ++
-                indent (printCase caseExpr (tail patterns)) 2 ++ "\n)"
-              ]
-        printComparator a b =
-          intercalate
-            "\n"
-            [ "(i32.eq"
-            , indent (printWasmExpr a) 2
-            , indent (printWasmExpr b) 2
-            , ")"
-            ]
-    paramsString args = unwords (paramString <$> args)
-    paramString arg = "(param $" ++ arg ++ " i32)"
-    opString op =
-      case op of
-        Add -> "i32.add"
-        Subtract -> "i32.sub"
-        Multiply -> "i32.mul"
-        Divide -> "i32.div_s"
 
 operatorToString :: OperatorExpr -> String
 operatorToString op =

@@ -2,6 +2,7 @@ module Main where
 
 import Data.Maybe
 import Lib
+import qualified WASM as W
 import System.Environment
 import Text.Megaparsec.Error
 
@@ -19,8 +20,10 @@ main = do
     Just filename -> do
       contents <- readFile filename
       let result = parseExpressionFromString contents
-      case result of
-        Right a -> putStrLn $ printWasm a
+      let wasm = W.forestModuleToWasm <$> result
+
+      case wasm of
+        Right a -> putStrLn $ W.printWasm a
         Left err ->
           putStrLn $
           "Syntax error in " ++
