@@ -10,6 +10,8 @@ module Lib
   , OperatorExpr(..)
   , TopLevelDeclaration(..)
   , NonEmptyString(..)
+  , Ident(..)
+  , rws
   , s
   , expr
   ) where
@@ -18,11 +20,11 @@ import Control.Applicative (empty)
 import Control.Monad (void)
 import Data.Functor.Identity ()
 import Data.List (intercalate)
+import qualified Data.List.NonEmpty
 import Data.Semigroup
 import Data.Text ()
 import Data.Void (Void)
 import qualified Generics.Deriving as G
-import qualified Data.List.NonEmpty
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -33,11 +35,18 @@ type Parser = Parsec Void String
 
 type ParseError' = ParseError Char Void
 
-newtype NonEmptyString = NonEmptyString (Data.List.NonEmpty.NonEmpty Char)
+newtype NonEmptyString =
+  NonEmptyString (Data.List.NonEmpty.NonEmpty Char)
   deriving (Show, Eq)
 
-s :: NonEmptyString -> String
-s (NonEmptyString s) = Data.List.NonEmpty.toList s
+idToString :: Ident -> String
+idToString (Ident str) = neToString str
+
+neToString :: NonEmptyString -> String
+neToString (NonEmptyString s) = Data.List.NonEmpty.toList s
+
+s :: Ident -> String
+s = idToString
 
 data OperatorExpr
   = Add
@@ -46,7 +55,9 @@ data OperatorExpr
   | Multiply
   deriving (Show, Eq, G.Generic)
 
-type Ident = NonEmptyString
+newtype Ident =
+  Ident NonEmptyString
+  deriving (Show, Eq)
 
 data Expression
   = Identifier Ident
@@ -132,8 +143,9 @@ pIdent = (lexeme . try) (p >>= check)
       if x `elem` rws
         then fail $ "keyword " ++ show x ++ " cannot be an identifier"
         else case Data.List.NonEmpty.nonEmpty x of
-          Just x -> return $ NonEmptyString x
-          Nothing -> fail $ "identifier must be longer than zero characters"
+               Just x -> return $ (Ident . NonEmptyString) x
+               Nothing ->
+                 fail $ "identifier must be longer than zero characters"
 
 pCase :: Parser Expression
 pCase = L.indentBlock scn p
@@ -203,7 +215,8 @@ printModule (Module declarations) =
 
 printTopLevelDeclaration :: TopLevelDeclaration -> String
 printTopLevelDeclaration (TopLevelDeclaration name args expr) =
-  unwords ([s name] <> (s <$> args) <> ["="]) ++ "\n" ++ indent (printExpression expr) 2
+  unwords ([s name] <> (s <$> args) <> ["="]) ++
+  "\n" ++ indent (printExpression expr) 2
 
 printExpression :: Expression -> String
 printExpression expr =

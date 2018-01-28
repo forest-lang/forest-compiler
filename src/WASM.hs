@@ -12,8 +12,8 @@ import qualified Lib as F
 
 import Control.Arrow ((***))
 import Data.List (intercalate)
-import Data.Maybe
 import qualified Data.List.NonEmpty
+import Data.Maybe
 import Data.Semigroup ((<>))
 import Data.Text (Text)
 
@@ -22,13 +22,13 @@ newtype Module =
 
 data Expression
   = Const Int
-  | Func F.NonEmptyString
-         [F.NonEmptyString]
+  | Func F.Ident
+         [F.Ident]
          Expression
-  | GetLocal F.NonEmptyString
-  | Call F.NonEmptyString
+  | GetLocal F.Ident
+  | Call F.Ident
          [Expression]
-  | NamedCall F.NonEmptyString
+  | NamedCall F.Ident
               [Expression]
   | If Expression
        Expression
@@ -42,10 +42,12 @@ indent2 :: String -> String
 indent2 = indent 2
 
 forestModuleToWasm :: F.Module -> Module
-forestModuleToWasm (F.Module declarations) = Module (forestDeclarationToWasm <$> declarations)
+forestModuleToWasm (F.Module declarations) =
+  Module (forestDeclarationToWasm <$> declarations)
 
 forestDeclarationToWasm :: F.TopLevelDeclaration -> Expression
-forestDeclarationToWasm (F.TopLevelDeclaration name args fexpr) = Func name args (forestExprToWasm fexpr)
+forestDeclarationToWasm (F.TopLevelDeclaration name args fexpr) =
+  Func name args (forestExprToWasm fexpr)
 
 forestExprToWasm :: F.Expression -> Expression
 forestExprToWasm fexpr =
@@ -63,8 +65,7 @@ forestExprToWasm fexpr =
     constructCase :: Expression -> [(Expression, Expression)] -> Expression
     constructCase caseExpr patterns =
       case patterns of
-        [x] ->
-          If (Call eq32 [caseExpr, fst x]) (snd (head patterns)) Nothing
+        [x] -> If (Call eq32 [caseExpr, fst x]) (snd (head patterns)) Nothing
         (x:xs) ->
           If
             (Call eq32 [caseExpr, fst x])
@@ -73,12 +74,14 @@ forestExprToWasm fexpr =
         [] -> undefined -- TODO use nonempty to force this
     patternsToWasm = map (forestExprToWasm *** forestExprToWasm)
 
-eq32 :: F.NonEmptyString
-eq32 = F.NonEmptyString $ Data.List.NonEmpty.fromList "i32.eq"
+eq32 :: F.Ident
+eq32 = F.Ident . F.NonEmptyString $ Data.List.NonEmpty.fromList "i32.eq"
 
-funcForOperator :: F.OperatorExpr -> F.NonEmptyString
+funcForOperator :: F.OperatorExpr -> F.Ident
 funcForOperator operator =
-  F.NonEmptyString $ Data.List.NonEmpty.fromList $ case operator of
+  F.Ident . F.NonEmptyString $
+  Data.List.NonEmpty.fromList $
+  case operator of
     F.Add -> "i32.add"
     F.Subtract -> "i32.sub"
     F.Multiply -> "i32.mul"
@@ -95,10 +98,12 @@ printWasm (Module expressions) =
         GetLocal name -> "(get_local $" ++ F.s name ++ ")"
         Call name args ->
           "(" ++
-          F.s name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
+          F.s name ++
+          "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
         NamedCall name args ->
           "(call $" ++
-          F.s name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
+          F.s name ++
+          "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
         If conditional a b ->
           unlines
             ([ "(if (result i32)"

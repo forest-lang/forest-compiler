@@ -24,15 +24,20 @@ instance Arbitrary TopLevelDeclaration where
   arbitrary = genTopLevelDeclaration
   shrink = genericShrink
 
+instance Arbitrary Ident where
+  arbitrary = genIdent
+  shrink (Ident s) = Ident <$> filter permittedWord (shrink s)
+
+permittedWord :: NonEmptyString -> Bool
+permittedWord (NonEmptyString s) = NE.toList s `notElem` rws
+
 instance Arbitrary NonEmptyString where
   arbitrary = genString
   shrink (NonEmptyString s) =
-    let
-      charString = NE.toList s
-      possibilities = shrink charString
-      nonEmptyPossibilities = filter (not . null) possibilities
-    in
-      map (NonEmptyString . NE.fromList) nonEmptyPossibilities
+    let charString = NE.toList s
+        possibilities = shrink charString
+        nonEmptyPossibilities = filter (not . null) possibilities
+    in map (NonEmptyString . NE.fromList) nonEmptyPossibilities
 
 genModule :: Gen Module
 genModule = Module <$> listOf1 genTopLevelDeclaration
@@ -43,12 +48,15 @@ genExpression = oneof [genIdentifier, genNumber, genAssignment, genInfix]
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
 
+genIdent :: Gen Ident
+genIdent = Ident <$> suchThat genString permittedWord
+
 genString :: Gen NonEmptyString
 genString = NonEmptyString . NE.fromList <$> listOf1 genChar
 
 genIdentifier :: Gen Expression
 genIdentifier = do
-  name <- genString
+  name <- genIdent
   return $ Identifier name
 
 genNumber :: Gen Expression
@@ -58,15 +66,15 @@ genNumber = do
 
 genAssignment :: Gen Expression
 genAssignment = do
-  name <- genString
-  args <- listOf genString
+  name <- genIdent
+  args <- listOf genIdent
   expr <- genExpression
   return $ Assignment name args expr
 
 genTopLevelDeclaration :: Gen TopLevelDeclaration
 genTopLevelDeclaration = do
-  name <- genString
-  args <- listOf genString
+  name <- genIdent
+  args <- listOf genIdent
   expr <- genExpression
   return $ TopLevelDeclaration name args expr
 
@@ -82,7 +90,7 @@ genInfix = do
 
 genCall :: Gen Expression
 genCall = do
-  name <- genString
+  name <- genIdent
   args <- listOf1 genIdentifier
   return $ Call name args
 
@@ -118,11 +126,11 @@ main =
             Module
               [ TopLevelDeclaration
                   (ne "double")
-                  [(ne "a")]
+                  [ne "a"]
                   (Infix Multiply (Identifier (ne "a")) (Number 2))
               , TopLevelDeclaration
                   (ne "half")
-                  [(ne "a")]
+                  [ne "a"]
                   (Infix Divide (Identifier (ne "a")) (Number 2))
               ]
       parseResult `shouldBe` Right expected
@@ -133,7 +141,7 @@ main =
             Module
               [ TopLevelDeclaration
                   (ne "test")
-                  [(ne "n")]
+                  [ne "n"]
                   (Case
                      (Identifier (ne "n"))
                      [ (Number 0, Number 1)
@@ -151,7 +159,7 @@ main =
             Module
               [ TopLevelDeclaration
                   (ne "test")
-                  [(ne "n")]
+                  [ne "n"]
                   (Case
                      (Identifier (ne "n"))
                      [ (Number 0, Number 1)
@@ -160,7 +168,7 @@ main =
                      ])
               , TopLevelDeclaration
                   (ne "double")
-                  [(ne "x")]
+                  [ne "x"]
                   (Infix Multiply (Identifier (ne "x")) (Number 2))
               ]
       parseResult `shouldBe` Right expected
@@ -176,8 +184,8 @@ main =
               ]
       parseResult `shouldBe` Right expected
 
-ne :: String -> NonEmptyString
-ne = NonEmptyString . NE.fromList
+ne :: String -> Ident
+ne = Ident . NonEmptyString . NE.fromList
 
 readFixture :: String -> IO String
 readFixture name = readFile ("test/fixtures/" ++ name ++ ".tree")
