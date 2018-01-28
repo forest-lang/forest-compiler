@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Lib
   ( printExpression
@@ -7,6 +8,9 @@ module Lib
   , Expression(..)
   , Module(..)
   , OperatorExpr(..)
+  , TopLevelDeclaration(..)
+  , NonEmptyString(..)
+  , s
   , expr
   ) where
 
@@ -17,6 +21,8 @@ import Data.List (intercalate)
 import Data.Semigroup
 import Data.Text ()
 import Data.Void (Void)
+import qualified Generics.Deriving as G
+import qualified Data.List.NonEmpty
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -27,14 +33,20 @@ type Parser = Parsec Void String
 
 type ParseError' = ParseError Char Void
 
+newtype NonEmptyString = NonEmptyString (Data.List.NonEmpty.NonEmpty Char)
+  deriving (Show, Eq)
+
+s :: NonEmptyString -> String
+s (NonEmptyString s) = Data.List.NonEmpty.toList s
+
 data OperatorExpr
   = Add
   | Subtract
   | Divide
   | Multiply
-  deriving (Show, Eq)
+  deriving (Show, Eq, G.Generic)
 
-type Ident = String
+type Ident = NonEmptyString
 
 data Expression
   = Identifier Ident
@@ -50,11 +62,17 @@ data Expression
   | Case Expression
          [(Expression, Expression)]
   | BetweenParens Expression
-  deriving (Show, Eq)
+  deriving (Show, Eq, G.Generic)
+
+data TopLevelDeclaration =
+  TopLevelDeclaration Ident
+                      [Ident]
+                      Expression
+  deriving (Show, Eq, G.Generic)
 
 newtype Module =
-  Module [Expression]
-  deriving (Show, Eq)
+  Module [TopLevelDeclaration]
+  deriving (Show, Eq, G.Generic)
 
 lineComment :: Parser ()
 lineComment = L.skipLineComment "#"
@@ -113,7 +131,9 @@ pIdent = (lexeme . try) (p >>= check)
     check x =
       if x `elem` rws
         then fail $ "keyword " ++ show x ++ " cannot be an identifier"
-        else return x
+        else case Data.List.NonEmpty.nonEmpty x of
+          Just x -> return $ NonEmptyString x
+          Nothing -> fail $ "identifier must be longer than zero characters"
 
 pCase :: Parser Expression
 pCase = L.indentBlock scn p
@@ -157,8 +177,19 @@ declaration = do
   scn
   return $ Assignment name args expression
 
-topLevelDeclaration :: Parser Expression
-topLevelDeclaration = L.nonIndented scn declaration
+topLevelDeclaration :: Parser TopLevelDeclaration
+topLevelDeclaration = L.nonIndented scn tld
+  where
+    tld = do
+      sc
+      name <- pIdent
+      args <- many (try (sc *> pIdent))
+      sc
+      symbol "="
+      scn
+      expression <- expr
+      scn
+      return $ TopLevelDeclaration name args expression
 
 parseModule :: Parser Module
 parseModule = Module <$> many topLevelDeclaration <* eof
@@ -167,8 +198,12 @@ parseExpressionFromString :: String -> Either ParseError' Module
 parseExpressionFromString = parse parseModule ""
 
 printModule :: Module -> String
-printModule (Module expressions) =
-  intercalate "\n\n" $ map printExpression expressions
+printModule (Module declarations) =
+  intercalate "\n\n" $ map printTopLevelDeclaration declarations
+
+printTopLevelDeclaration :: TopLevelDeclaration -> String
+printTopLevelDeclaration (TopLevelDeclaration name args expr) =
+  unwords ([s name] <> (s <$> args) <> ["="]) ++ "\n" ++ indent (printExpression expr) 2
 
 printExpression :: Expression -> String
 printExpression expr =
@@ -177,10 +212,10 @@ printExpression expr =
     Infix op expr expr2 ->
       unwords [printExpression expr, operatorToString op, printExpression expr2]
     Assignment name args expr ->
-      unwords ([name] <> args <> ["="]) ++
+      unwords ([s name] <> (s <$> args) <> ["="]) ++
       "\n" ++ indent (printExpression expr) 2
-    Identifier name -> name
-    Call name args -> name ++ " " ++ unwords (printExpression <$> args)
+    Identifier name -> s name
+    Call name args -> s name ++ " " ++ unwords (printExpression <$> args)
     Case caseExpr patterns ->
       "case " ++
       printExpression caseExpr ++ " of\n" ++ indent (printPatterns patterns) 2
