@@ -1,19 +1,41 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Monad
+import qualified Data.List.NonEmpty as NE
 import Test.Hspec
 import Test.QuickCheck
+import Test.QuickCheck.Arbitrary
 
 import Lib
 
 instance Arbitrary Module where
   arbitrary = genModule
+  shrink = genericShrink
 
 instance Arbitrary Expression where
   arbitrary = genExpression
+  shrink = genericShrink
+
+instance Arbitrary OperatorExpr where
+  arbitrary = genOperator
+  shrink = genericShrink
+
+instance Arbitrary TopLevelDeclaration where
+  arbitrary = genTopLevelDeclaration
+  shrink = genericShrink
+
+instance Arbitrary NonEmptyString where
+  arbitrary = genString
+  shrink (NonEmptyString s) =
+    let
+      charString = NE.toList s
+      possibilities = shrink charString
+      nonEmptyPossibilities = filter (not . null) possibilities
+    in
+      map (NonEmptyString . NE.fromList) nonEmptyPossibilities
 
 genModule :: Gen Module
-genModule = Module <$> listOf1 genAssignment
+genModule = Module <$> listOf1 genTopLevelDeclaration
 
 genExpression :: Gen Expression
 genExpression = oneof [genIdentifier, genNumber, genAssignment, genInfix]
@@ -21,8 +43,8 @@ genExpression = oneof [genIdentifier, genNumber, genAssignment, genInfix]
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
 
-genString :: Gen String
-genString = listOf1 genChar
+genString :: Gen NonEmptyString
+genString = NonEmptyString . NE.fromList <$> listOf1 genChar
 
 genIdentifier :: Gen Expression
 genIdentifier = do
@@ -40,6 +62,13 @@ genAssignment = do
   args <- listOf genString
   expr <- genExpression
   return $ Assignment name args expr
+
+genTopLevelDeclaration :: Gen TopLevelDeclaration
+genTopLevelDeclaration = do
+  name <- genString
+  args <- listOf genString
+  expr <- genExpression
+  return $ TopLevelDeclaration name args expr
 
 genOperator :: Gen OperatorExpr
 genOperator = elements [Add, Subtract, Multiply, Divide]
@@ -74,7 +103,7 @@ propParseAndPrint expr =
       reparsedExpr = parseExpressionFromString output
   in case reparsedExpr of
        Right newExpr -> newExpr == expr
-       Left err -> False
+       Left _ -> False
 
 main :: IO ()
 main =
@@ -87,14 +116,14 @@ main =
       let parseResult = parseExpressionFromString code
       let expected =
             Module
-              [ Assignment
-                  "double"
-                  ["a"]
-                  (Infix Multiply (Identifier "a") (Number 2))
-              , Assignment
-                  "half"
-                  ["a"]
-                  (Infix Divide (Identifier "a") (Number 2))
+              [ TopLevelDeclaration
+                  (ne "double")
+                  [(ne "a")]
+                  (Infix Multiply (Identifier (ne "a")) (Number 2))
+              , TopLevelDeclaration
+                  (ne "half")
+                  [(ne "a")]
+                  (Infix Divide (Identifier (ne "a")) (Number 2))
               ]
       parseResult `shouldBe` Right expected
     it "parses an assignment with a case statement" $ do
@@ -102,14 +131,15 @@ main =
       let parseResult = parseExpressionFromString code
       let expected =
             Module
-              [ Assignment
-                  "test"
-                  ["n"]
+              [ TopLevelDeclaration
+                  (ne "test")
+                  [(ne "n")]
                   (Case
-                     (Identifier "n")
+                     (Identifier (ne "n"))
                      [ (Number 0, Number 1)
                      , (Number 1, Number 1)
-                     , (Identifier "n", Infix Add (Identifier "n") (Number 1))
+                     , ( Identifier (ne "n")
+                       , Infix Add (Identifier (ne "n")) (Number 1))
                      ])
               ]
       parseResult `shouldBe` Right expected
@@ -119,27 +149,35 @@ main =
       let parseResult = parseExpressionFromString code
       let expected =
             Module
-              [ Assignment
-                  "test"
-                  ["n"]
+              [ TopLevelDeclaration
+                  (ne "test")
+                  [(ne "n")]
                   (Case
-                     (Identifier "n")
+                     (Identifier (ne "n"))
                      [ (Number 0, Number 1)
                      , (Number 1, Number 1)
-                     , (Identifier "n", Identifier "n")
+                     , (Identifier (ne "n"), Identifier (ne "n"))
                      ])
-              , Assignment
-                  "double"
-                  ["x"]
-                  (Infix Multiply (Identifier "x") (Number 2))
+              , TopLevelDeclaration
+                  (ne "double")
+                  [(ne "x")]
+                  (Infix Multiply (Identifier (ne "x")) (Number 2))
               ]
       parseResult `shouldBe` Right expected
     it "parses nested assignment" $ do
       code <- readFixture "nested-assignment"
       let parseResult = parseExpressionFromString code
       let expected =
-            Module [Assignment "a" [] (Assignment "b" [] (Identifier "c"))]
+            Module
+              [ TopLevelDeclaration
+                  (ne "a")
+                  []
+                  (Assignment (ne "b") [] (Identifier (ne "c")))
+              ]
       parseResult `shouldBe` Right expected
+
+ne :: String -> NonEmptyString
+ne = NonEmptyString . NE.fromList
 
 readFixture :: String -> IO String
 readFixture name = readFile ("test/fixtures/" ++ name ++ ".tree")

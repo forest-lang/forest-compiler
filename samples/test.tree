@@ -1,7 +1,3 @@
-add a b = a + b
-
-addFive n = add n 5
-
-main = addFive 10
-
-
+add =
+  foo of =
+    0

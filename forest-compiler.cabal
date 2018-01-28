@@ -20,13 +20,14 @@ library
                      , WASM
   build-depends:       base >= 4.7 && < 5
                      , megaparsec
+                     , generic-deriving
                      , text
   default-language:    Haskell2010
 
 executable forest-compiler-exe
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Werror -Wunused-matches -Wunused-local-binds -Wmissing-signatures -Wincomplete-patterns -Wincomplete-uni-patterns -Wincomplete-record-updates
   build-depends:       base
                      , forest-compiler
                      , megaparsec
@@ -41,7 +42,7 @@ test-suite forest-compiler-test
                      , forest-compiler
                      , QuickCheck
                      , hspec
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Werror -Wunused-matches -Wunused-local-binds -Wmissing-signatures -Wincomplete-patterns -Wincomplete-uni-patterns -Wincomplete-record-updates
   default-language:    Haskell2010
 
 source-repository head
