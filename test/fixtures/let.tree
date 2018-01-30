@@ -1,0 +1,6 @@
+a =
+  let
+    foo = 5
+    bar = 10
+  in
+    foo + bar
