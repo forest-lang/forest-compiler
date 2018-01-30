@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
@@ -37,17 +39,28 @@ permittedWord (NonEmptyString s) = NE.toList s `notElem` rws
 
 instance Arbitrary NonEmptyString where
   arbitrary = genString
-  shrink (NonEmptyString s) =
-    let charString = NE.toList s
-        possibilities = shrink charString
-        nonEmptyPossibilities = filter (not . null) possibilities
-    in map (NonEmptyString . NE.fromList) nonEmptyPossibilities
+  shrink (NonEmptyString s) = NonEmptyString <$> shrinkNonEmpty s
+
+instance Arbitrary (NE.NonEmpty Declaration) where
+  arbitrary = genNonEmpty genDeclaration
+  shrink = shrinkNonEmpty
 
 genModule :: Gen Module
 genModule = Module <$> listOf1 genDeclaration
 
+genNonEmpty :: Gen a -> Gen (NE.NonEmpty a)
+genNonEmpty gen = NE.fromList <$> listOf1 gen
+
+shrinkNonEmpty :: Arbitrary a => NE.NonEmpty a -> [NE.NonEmpty a]
+shrinkNonEmpty n =
+  let list = NE.toList n
+      possibilities = shrink list
+      nonEmptyPossibilities = filter (not . null) possibilities
+  in map NE.fromList nonEmptyPossibilities
+
 genExpression :: Gen Expression
-genExpression = oneof [genIdentifier, genNumber, genAssignment, genInfix]
+genExpression =
+  oneof [genIdentifier, genNumber, genAssignment, genInfix, genLet]
 
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
@@ -104,6 +117,12 @@ genCase = do
   return $ Case caseExpr cases
   where
     genCase = oneof [genNumber, genIdentifier] >*< genExpression
+
+genLet :: Gen Expression
+genLet = do
+  declarations <- genNonEmpty genDeclaration
+  expr <- genExpression
+  return $ Let declarations expr
 
 propParseAndPrint :: Module -> Bool
 propParseAndPrint expr =
@@ -181,6 +200,22 @@ main =
                   (ne "a")
                   []
                   (Assignment $ Declaration (ne "b") [] (Identifier (ne "c")))
+              ]
+      parseResult `shouldBe` Right expected
+    it "parses let expressions" $ do
+      code <- readFixture "let"
+      let parseResult = parseExpressionFromString code
+      let expected =
+            Module
+              [ Declaration
+                  (ne "a")
+                  []
+                  (Let
+                     (NE.fromList
+                        [ Declaration (ne "foo") [] (Number 5)
+                        , Declaration (ne "bar") [] (Number 10)
+                        ])
+                     (Infix Add (Identifier (ne "foo")) (Identifier (ne "bar"))))
               ]
       parseResult `shouldBe` Right expected
 

@@ -61,6 +61,7 @@ forestExprToWasm fexpr =
     F.Call name arguments -> NamedCall name (map forestExprToWasm arguments)
     F.Case caseFexpr patterns ->
       constructCase (forestExprToWasm caseFexpr) (patternsToWasm patterns)
+    F.Let _ _ -> undefined
   where
     constructCase :: Expression -> [(Expression, Expression)] -> Expression
     constructCase caseExpr patterns =
