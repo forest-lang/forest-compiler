@@ -1,5 +1,6 @@
 module Main where
 
+import Compiler
 import Data.Maybe
 import Lib
 import qualified WASM as W
@@ -19,11 +20,9 @@ main = do
   case maybeFilename of
     Just filename -> do
       contents <- readFile filename
-      let result = parseExpressionFromString contents
-      let wasm = W.forestModuleToWasm <$> result
 
-      case wasm of
-        Right a -> putStrLn $ W.printWasm a
+      case compile contents of
+        Right a -> putStrLn a
         Left err ->
           putStrLn $
           "Syntax error in " ++
