@@ -7,6 +7,7 @@ module Lib
   , parseExpressionFromString
   , Expression(..)
   , Module(..)
+  , ParseError'
   , OperatorExpr(..)
   , TopLevelDeclaration(..)
   , NonEmptyString(..)

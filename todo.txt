@@ -1,0 +1,11 @@
+What could I work on?
+
+Let in
+Try out hedgehog
+JS syntax and printer
+Test for compiled fibonacci program
+Test WASM generation
+
+Type system???
+Strings???
+
