@@ -24,8 +24,8 @@ instance Arbitrary OperatorExpr where
   arbitrary = genOperator
   shrink = genericShrink
 
-instance Arbitrary TopLevelDeclaration where
-  arbitrary = genTopLevelDeclaration
+instance Arbitrary Declaration where
+  arbitrary = genDeclaration
   shrink = genericShrink
 
 instance Arbitrary Ident where
@@ -44,7 +44,7 @@ instance Arbitrary NonEmptyString where
     in map (NonEmptyString . NE.fromList) nonEmptyPossibilities
 
 genModule :: Gen Module
-genModule = Module <$> listOf1 genTopLevelDeclaration
+genModule = Module <$> listOf1 genDeclaration
 
 genExpression :: Gen Expression
 genExpression = oneof [genIdentifier, genNumber, genAssignment, genInfix]
@@ -69,18 +69,14 @@ genNumber = do
   return $ Number number
 
 genAssignment :: Gen Expression
-genAssignment = do
-  name <- genIdent
-  args <- listOf genIdent
-  expr <- genExpression
-  return $ Assignment name args expr
+genAssignment = Assignment <$> genDeclaration
 
-genTopLevelDeclaration :: Gen TopLevelDeclaration
-genTopLevelDeclaration = do
+genDeclaration :: Gen Declaration
+genDeclaration = do
   name <- genIdent
   args <- listOf genIdent
   expr <- genExpression
-  return $ TopLevelDeclaration name args expr
+  return $ Declaration name args expr
 
 genOperator :: Gen OperatorExpr
 genOperator = elements [Add, Subtract, Multiply, Divide]
@@ -128,11 +124,11 @@ main =
       let parseResult = parseExpressionFromString code
       let expected =
             Module
-              [ TopLevelDeclaration
+              [ Declaration
                   (ne "double")
                   [ne "a"]
                   (Infix Multiply (Identifier (ne "a")) (Number 2))
-              , TopLevelDeclaration
+              , Declaration
                   (ne "half")
                   [ne "a"]
                   (Infix Divide (Identifier (ne "a")) (Number 2))
@@ -143,7 +139,7 @@ main =
       let parseResult = parseExpressionFromString code
       let expected =
             Module
-              [ TopLevelDeclaration
+              [ Declaration
                   (ne "test")
                   [ne "n"]
                   (Case
@@ -161,7 +157,7 @@ main =
       let parseResult = parseExpressionFromString code
       let expected =
             Module
-              [ TopLevelDeclaration
+              [ Declaration
                   (ne "test")
                   [ne "n"]
                   (Case
@@ -170,7 +166,7 @@ main =
                      , (Number 1, Number 1)
                      , (Identifier (ne "n"), Identifier (ne "n"))
                      ])
-              , TopLevelDeclaration
+              , Declaration
                   (ne "double")
                   [ne "x"]
                   (Infix Multiply (Identifier (ne "x")) (Number 2))
@@ -181,10 +177,10 @@ main =
       let parseResult = parseExpressionFromString code
       let expected =
             Module
-              [ TopLevelDeclaration
+              [ Declaration
                   (ne "a")
                   []
-                  (Assignment (ne "b") [] (Identifier (ne "c")))
+                  (Assignment $ Declaration (ne "b") [] (Identifier (ne "c")))
               ]
       parseResult `shouldBe` Right expected
 

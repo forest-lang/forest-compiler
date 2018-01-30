@@ -45,8 +45,8 @@ forestModuleToWasm :: F.Module -> Module
 forestModuleToWasm (F.Module declarations) =
   Module (forestDeclarationToWasm <$> declarations)
 
-forestDeclarationToWasm :: F.TopLevelDeclaration -> Expression
-forestDeclarationToWasm (F.TopLevelDeclaration name args fexpr) =
+forestDeclarationToWasm :: F.Declaration -> Expression
+forestDeclarationToWasm (F.Declaration name args fexpr) =
   Func name args (forestExprToWasm fexpr)
 
 forestExprToWasm :: F.Expression -> Expression
@@ -54,7 +54,7 @@ forestExprToWasm fexpr =
   case fexpr of
     F.Identifier i -> GetLocal i
     F.Number n -> Const n
-    F.Assignment name args fexpr -> Func name args (forestExprToWasm fexpr)
+    F.Assignment declaration -> forestDeclarationToWasm declaration
     F.BetweenParens fexpr -> forestExprToWasm fexpr
     F.Infix operator a b ->
       Call (funcForOperator operator) [forestExprToWasm a, forestExprToWasm b]

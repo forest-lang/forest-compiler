@@ -9,7 +9,7 @@ module Lib
   , Module(..)
   , ParseError'
   , OperatorExpr(..)
-  , TopLevelDeclaration(..)
+  , Declaration(..)
   , NonEmptyString(..)
   , Ident(..)
   , rws
@@ -63,9 +63,7 @@ newtype Ident =
 data Expression
   = Identifier Ident
   | Number Int
-  | Assignment Ident
-               [Ident]
-               Expression
+  | Assignment Declaration
   | Infix OperatorExpr
           Expression
           Expression
@@ -76,14 +74,14 @@ data Expression
   | BetweenParens Expression
   deriving (Show, Eq, G.Generic)
 
-data TopLevelDeclaration =
-  TopLevelDeclaration Ident
-                      [Ident]
-                      Expression
+data Declaration =
+  Declaration Ident
+              [Ident]
+              Expression
   deriving (Show, Eq, G.Generic)
 
 newtype Module =
-  Module [TopLevelDeclaration]
+  Module [Declaration]
   deriving (Show, Eq, G.Generic)
 
 lineComment :: Parser ()
@@ -107,11 +105,11 @@ expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
 term :: Parser Expression
-term = sc *> (try pCase <|> try declaration <|> parens <|> call <|> number)
+term = sc *> (try pCase <|> try assignment <|> parens <|> call <|> number)
 
 termWithoutCall :: Parser Expression
 termWithoutCall =
-  sc *> (try pCase <|> try declaration <|> parens <|> identifier <|> number)
+  sc *> (try pCase <|> try assignment <|> parens <|> identifier <|> number)
 
 symbol :: String -> Parser String
 symbol = L.symbol sc
@@ -178,22 +176,14 @@ call = do
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
 
-declaration :: Parser Expression
-declaration = do
-  sc
-  name <- pIdent
-  args <- many (try (sc *> pIdent))
-  sc
-  symbol "="
-  scn
-  expression <- expr
-  scn
-  return $ Assignment name args expression
+assignment :: Parser Expression
+assignment = Assignment <$> declaration
 
-topLevelDeclaration :: Parser TopLevelDeclaration
-topLevelDeclaration = L.nonIndented scn tld
-  where
-    tld = do
+tld :: Parser Declaration
+tld = L.nonIndented scn declaration
+
+declaration :: Parser Declaration
+declaration = do
       sc
       name <- pIdent
       args <- many (try (sc *> pIdent))
@@ -202,20 +192,20 @@ topLevelDeclaration = L.nonIndented scn tld
       scn
       expression <- expr
       scn
-      return $ TopLevelDeclaration name args expression
+      return $ Declaration name args expression
 
 parseModule :: Parser Module
-parseModule = Module <$> many topLevelDeclaration <* eof
+parseModule = Module <$> many tld <* eof
 
 parseExpressionFromString :: String -> Either ParseError' Module
 parseExpressionFromString = parse parseModule ""
 
 printModule :: Module -> String
 printModule (Module declarations) =
-  intercalate "\n\n" $ map printTopLevelDeclaration declarations
+  intercalate "\n\n" $ map printDeclaration declarations
 
-printTopLevelDeclaration :: TopLevelDeclaration -> String
-printTopLevelDeclaration (TopLevelDeclaration name args expr) =
+printDeclaration :: Declaration -> String
+printDeclaration (Declaration name args expr) =
   unwords ([s name] <> (s <$> args) <> ["="]) ++
   "\n" ++ indent (printExpression expr) 2
 
@@ -225,9 +215,7 @@ printExpression expr =
     Number n -> show n
     Infix op expr expr2 ->
       unwords [printExpression expr, operatorToString op, printExpression expr2]
-    Assignment name args expr ->
-      unwords ([s name] <> (s <$> args) <> ["="]) ++
-      "\n" ++ indent (printExpression expr) 2
+    Assignment declaration -> printDeclaration declaration
     Identifier name -> s name
     Call name args -> s name ++ " " ++ unwords (printExpression <$> args)
     Case caseExpr patterns ->
