@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
-
+{-# OPTIONS -Wall #-}
 module Lib
   ( printExpression
   , printModule
@@ -44,7 +44,7 @@ idToString :: Ident -> String
 idToString (Ident str) = neToString str
 
 neToString :: NonEmptyString -> String
-neToString (NonEmptyString s) = NE.toList s
+neToString (NonEmptyString se) = NE.toList se
 
 s :: Ident -> String
 s = idToString
@@ -109,12 +109,12 @@ expr = makeExprParser (lexeme term) table <?> "expression"
 term :: Parser Expression
 term =
   sc *>
-  (try pLet <|> try pCase <|> try assignment <|> parens <|> call <|> number)
+  (try pCase <|> try pLet <|> try assignment <|> parens <|> call <|> number)
 
 termWithoutCall :: Parser Expression
 termWithoutCall =
   sc *>
-  (try pLet <|> try pCase <|> try assignment <|> parens <|> identifier <|>
+  (try pCase <|> try pLet <|> try assignment <|> parens <|> identifier <|>
    number)
 
 symbol :: String -> Parser String
@@ -134,8 +134,8 @@ table =
 number :: Parser Expression
 number = Number <$> (sc *> L.decimal)
 
-rword :: String -> Parser ()
-rword w = lexeme (string w *> notFollowedBy alphaNumChar)
+{- rword :: String -> Parser ()
+rword w = lexeme (string w *> notFollowedBy alphaNumChar) -}
 
 rws :: [String] -- list of reserved words
 rws = ["case", "of", "let"]
@@ -148,31 +148,31 @@ pIdent = (lexeme . try) (p >>= check)
       if x `elem` rws
         then fail $ "keyword " ++ show x ++ " cannot be an identifier"
         else case NE.nonEmpty x of
-               Just x -> return $ (Ident . NonEmptyString) x
+               Just n -> return $ (Ident . NonEmptyString) n
                Nothing -> fail "identifier must be longer than zero characters"
 
 pCase :: Parser Expression
 pCase = L.indentBlock scn p
   where
     p = do
-      symbol "case"
+      _ <- symbol "case"
       sc
       caseExpr <- expr
       sc
-      symbol "of"
+      _ <- symbol "of"
       return $ L.IndentSome Nothing (return . Case caseExpr) caseBranch
     caseBranch = do
       sc
       pattern' <- number <|> identifier
       sc
-      symbol "->"
+      _ <- symbol "->"
       branchExpr <- expr
       return (pattern', branchExpr)
 
 pLet :: Parser Expression
 pLet = do
   declarations <- pDeclarations
-  symbol "in"
+  _ <- symbol "in"
   scn
   expression <- expr
 
@@ -180,7 +180,7 @@ pLet = do
   where
     pDeclarations = L.indentBlock scn p
     p = do
-      symbol "let"
+      _ <- symbol "let"
       return $ L.IndentSome Nothing (return . NE.fromList) declaration
 
 call :: Parser Expression
@@ -207,7 +207,7 @@ declaration = do
   name <- pIdent
   args <- many (try (sc *> pIdent))
   sc
-  symbol "="
+  _ <- symbol "="
   scn
   expression <- expr
   scn
@@ -224,36 +224,41 @@ printModule (Module declarations) =
   intercalate "\n\n" $ map printDeclaration declarations
 
 printDeclaration :: Declaration -> String
-printDeclaration (Declaration name args expr) =
+printDeclaration (Declaration name args expr') =
   unwords ([s name] <> (s <$> args) <> ["="]) ++
-  "\n" ++ indent2 (printExpression expr)
+  "\n" ++ indent2 (printExpression expr')
 
 printExpression :: Expression -> String
-printExpression expr =
-  case expr of
+printExpression expression =
+  case expression  of
     Number n -> show n
-    Infix op expr expr2 ->
-      unwords [printExpression expr, operatorToString op, printExpression expr2]
-    Assignment declaration -> printDeclaration declaration
+    Infix op expr' expr'' ->
+      unwords [printExpression expr', operatorToString op, printSecondInfix expr'']
+    Assignment declaration' -> printDeclaration declaration'
     Identifier name -> s name
     Call name args -> s name ++ " " ++ unwords (printExpression <$> args)
     Case caseExpr patterns ->
       "case " ++
       printExpression caseExpr ++ " of\n" ++ indent2 (printPatterns patterns)
-    BetweenParens expr -> "(" ++ printExpression expr ++ ")"
-    Let declarations expr -> printLet declarations expr
+    BetweenParens expr' -> "(" ++ printExpression expr' ++ ")"
+    Let declarations expr' -> printLet declarations expr'
   where
     printPatterns patterns = unlines $ map printPattern patterns
     printPattern (patternExpr, resultExpr) =
       printExpression patternExpr ++ " -> " ++ printExpression resultExpr
-    printLet declarations expr =
+    printLet declarations expr' =
       intercalate "\n" $
       concat
         [ ["let"]
         , indent2 . printDeclaration <$> NE.toList declarations
         , ["in"]
-        , [indent2 $ printExpression expr]
+        , [indent2 $ printExpression expr']
         ]
+    printSecondInfix expr' =
+      case expr' of
+        Let _ _ -> "\n" ++ indent2 (printExpression expr')
+        _ -> printExpression expr'
+
 
 indent :: Int -> String -> String
 indent level str =
