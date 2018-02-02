@@ -1,3 +1,17 @@
-add =
-  foo of =
-    0
+test a b =
+  let
+    c =
+      a + 5
+    b =
+      c + 3
+    d = 5 /
+      let
+        x = 5
+        y = 10
+      in
+        x + y
+  in
+    a * b + c / 5
+
+foo a =
+  a * 10 + 1000 / 0 + test 5 10
