@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# OPTIONS -Wall #-}
+
 module Lib
   ( printExpression
   , printModule
@@ -63,7 +64,6 @@ newtype Ident =
 data Expression
   = Identifier Ident
   | Number Int
-  | Assignment Declaration
   | Infix OperatorExpr
           Expression
           Expression
@@ -107,15 +107,11 @@ expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
 term :: Parser Expression
-term =
-  sc *>
-  (try pCase <|> try pLet <|> try assignment <|> parens <|> call <|> number)
+term = sc *> (try pCase <|> try pLet <|> parens <|> call <|> number)
 
 termWithoutCall :: Parser Expression
 termWithoutCall =
-  sc *>
-  (try pCase <|> try pLet <|> try assignment <|> parens <|> identifier <|>
-   number)
+  sc *> (try pCase <|> try pLet <|> parens <|> identifier <|> number)
 
 symbol :: String -> Parser String
 symbol = L.symbol sc
@@ -136,7 +132,6 @@ number = Number <$> (sc *> L.decimal)
 
 {- rword :: String -> Parser ()
 rword w = lexeme (string w *> notFollowedBy alphaNumChar) -}
-
 rws :: [String] -- list of reserved words
 rws = ["case", "of", "let"]
 
@@ -160,7 +155,8 @@ pCase = L.indentBlock scn p
       caseExpr <- expr
       scn
       _ <- symbol "of"
-      return $ L.IndentSome Nothing (return . Case caseExpr . NE.fromList) caseBranch
+      return $
+        L.IndentSome Nothing (return . Case caseExpr . NE.fromList) caseBranch
     caseBranch = do
       sc
       pattern' <- number <|> identifier
@@ -175,7 +171,6 @@ pLet = do
   _ <- symbol "in"
   scn
   expression <- expr
-
   return $ Let declarations expression
   where
     pDeclarations = L.indentBlock scn p
@@ -194,9 +189,6 @@ call = do
 
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
-
-assignment :: Parser Expression
-assignment = Assignment <$> declaration
 
 tld :: Parser Declaration
 tld = L.nonIndented scn declaration
@@ -230,11 +222,11 @@ printDeclaration (Declaration name args expr') =
 
 printExpression :: Expression -> String
 printExpression expression =
-  case expression  of
+  case expression of
     Number n -> show n
     Infix op expr' expr'' ->
-      unwords [printExpression expr', operatorToString op, printSecondInfix expr'']
-    Assignment declaration' -> printDeclaration declaration'
+      unwords
+        [printExpression expr', operatorToString op, printSecondInfix expr'']
     Identifier name -> s name
     Call name args -> s name ++ " " ++ unwords (printExpression <$> args)
     Case caseExpr patterns ->
@@ -259,12 +251,11 @@ printExpression expression =
         True -> "\n" ++ indent2 (printExpression expr')
         False -> printExpression expr'
 
-
 isComplex :: Expression -> Bool
 isComplex expr' =
   case expr' of
-    Let{} -> True
-    Case{} -> True
+    Let {} -> True
+    Case {} -> True
     _ -> False
 
 indent :: Int -> String -> String
