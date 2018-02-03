@@ -71,9 +71,9 @@ data Expression
          [Expression]
   | Case Expression
          (NE.NonEmpty (Expression, Expression))
-  | BetweenParens Expression
   | Let (NE.NonEmpty Declaration)
         Expression
+  | BetweenParens Expression
   deriving (Show, Eq, G.Generic)
 
 data Declaration =
@@ -247,9 +247,9 @@ printExpression expression =
         , [indent2 $ printExpression expr']
         ]
     printSecondInfix expr' =
-      case isComplex expr' of
-        True -> "\n" ++ indent2 (printExpression expr')
-        False -> printExpression expr'
+      if isComplex expr'
+        then "\n" ++ indent2 (printExpression expr')
+        else printExpression expr'
 
 isComplex :: Expression -> Bool
 isComplex expr' =
