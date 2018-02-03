@@ -70,7 +70,7 @@ data Expression
   | Call Ident
          [Expression]
   | Case Expression
-         [(Expression, Expression)]
+         (NE.NonEmpty (Expression, Expression))
   | BetweenParens Expression
   | Let (NE.NonEmpty Declaration)
         Expression
@@ -158,9 +158,9 @@ pCase = L.indentBlock scn p
       _ <- symbol "case"
       sc
       caseExpr <- expr
-      sc
+      scn
       _ <- symbol "of"
-      return $ L.IndentSome Nothing (return . Case caseExpr) caseBranch
+      return $ L.IndentSome Nothing (return . Case caseExpr . NE.fromList) caseBranch
     caseBranch = do
       sc
       pattern' <- number <|> identifier
@@ -243,9 +243,9 @@ printExpression expression =
     BetweenParens expr' -> "(" ++ printExpression expr' ++ ")"
     Let declarations expr' -> printLet declarations expr'
   where
-    printPatterns patterns = unlines $ map printPattern patterns
+    printPatterns patterns = unlines $ NE.toList $ printPattern <$> patterns
     printPattern (patternExpr, resultExpr) =
-      printExpression patternExpr ++ " -> " ++ printExpression resultExpr
+      printExpression patternExpr ++ " -> " ++ printSecondInfix resultExpr
     printLet declarations expr' =
       intercalate "\n" $
       concat
@@ -255,10 +255,17 @@ printExpression expression =
         , [indent2 $ printExpression expr']
         ]
     printSecondInfix expr' =
-      case expr' of
-        Let _ _ -> "\n" ++ indent2 (printExpression expr')
-        _ -> printExpression expr'
+      case isComplex expr' of
+        True -> "\n" ++ indent2 (printExpression expr')
+        False -> printExpression expr'
 
+
+isComplex :: Expression -> Bool
+isComplex expr' =
+  case expr' of
+    Let{} -> True
+    Case{} -> True
+    _ -> False
 
 indent :: Int -> String -> String
 indent level str =

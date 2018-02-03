@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 
 module WASM
   ( Expression(..)
@@ -12,7 +13,8 @@ import qualified Lib as F
 
 import Control.Arrow ((***))
 import Data.List (intercalate)
-import qualified Data.List.NonEmpty
+import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty(NonEmpty((:|)))
 import Data.Maybe
 import Data.Semigroup ((<>))
 import Data.Text (Text)
@@ -63,25 +65,24 @@ forestExprToWasm fexpr =
       constructCase (forestExprToWasm caseFexpr) (patternsToWasm patterns)
     F.Let _ _ -> undefined
   where
-    constructCase :: Expression -> [(Expression, Expression)] -> Expression
+    constructCase :: Expression -> NE.NonEmpty (Expression, Expression) -> Expression
     constructCase caseExpr patterns =
       case patterns of
-        [x] -> If (Call eq32 [caseExpr, fst x]) (snd (head patterns)) Nothing
-        (x:xs) ->
+        [x] -> If (Call eq32 [caseExpr, fst x]) (snd x) Nothing
+        (x :| xs) ->
           If
             (Call eq32 [caseExpr, fst x])
             (snd x)
-            (Just (constructCase caseExpr xs))
-        [] -> undefined -- TODO use nonempty to force this
-    patternsToWasm = map (forestExprToWasm *** forestExprToWasm)
+            (Just (constructCase caseExpr (NE.fromList xs)))
+    patternsToWasm = fmap (forestExprToWasm *** forestExprToWasm)
 
 eq32 :: F.Ident
-eq32 = F.Ident . F.NonEmptyString $ Data.List.NonEmpty.fromList "i32.eq"
+eq32 = F.Ident . F.NonEmptyString $ NE.fromList "i32.eq"
 
 funcForOperator :: F.OperatorExpr -> F.Ident
 funcForOperator operator =
   F.Ident . F.NonEmptyString $
-  Data.List.NonEmpty.fromList $
+  NE.fromList $
   case operator of
     F.Add -> "i32.add"
     F.Subtract -> "i32.sub"
