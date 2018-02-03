@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances #-}
 
@@ -45,6 +46,10 @@ instance Arbitrary (NE.NonEmpty Declaration) where
   arbitrary = genNonEmpty genDeclaration
   shrink = shrinkNonEmpty
 
+instance Arbitrary (NE.NonEmpty (Expression, Expression)) where
+  arbitrary = genNonEmpty genCaseBranch
+  shrink = shrinkNonEmpty
+
 genModule :: Gen Module
 genModule = Module <$> listOf1 genDeclaration
 
@@ -63,7 +68,6 @@ genExpression =
   frequency
     [ (30, genIdentifier)
     , (30, genNumber)
-    , (30, genAssignment)
     , (3, genInfix)
     , (1, genLet)
     ]
@@ -86,9 +90,6 @@ genNumber :: Gen Expression
 genNumber = do
   number <- arbitrarySizedNatural
   return $ Number number
-
-genAssignment :: Gen Expression
-genAssignment = Assignment <$> genDeclaration
 
 genDeclaration :: Gen Declaration
 genDeclaration = do
@@ -119,10 +120,11 @@ x >*< y = liftM2 (,) x y
 genCase :: Gen Expression
 genCase = do
   caseExpr <- genExpression
-  cases <- listOf1 genCase
+  cases <- genNonEmpty genCaseBranch
   return $ Case caseExpr cases
-  where
-    genCase = oneof [genNumber, genIdentifier] >*< genExpression
+
+genCaseBranch :: Gen (Expression, Expression)
+genCaseBranch = oneof [genNumber, genIdentifier] >*< genExpression
 
 genLet :: Gen Expression
 genLet = do
@@ -195,17 +197,6 @@ main =
                   (ne "double")
                   [ne "x"]
                   (Infix Multiply (Identifier (ne "x")) (Number 2))
-              ]
-      parseResult `shouldBe` Right expected
-    it "parses nested assignment" $ do
-      code <- readFixture "nested-assignment"
-      let parseResult = parseExpressionFromString code
-      let expected =
-            Module
-              [ Declaration
-                  (ne "a")
-                  []
-                  (Assignment $ Declaration (ne "b") [] (Identifier (ne "c")))
               ]
       parseResult `shouldBe` Right expected
     it "parses let expressions" $ do

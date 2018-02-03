@@ -56,7 +56,6 @@ forestExprToWasm fexpr =
   case fexpr of
     F.Identifier i -> GetLocal i
     F.Number n -> Const n
-    F.Assignment declaration -> forestDeclarationToWasm declaration
     F.BetweenParens fexpr -> forestExprToWasm fexpr
     F.Infix operator a b ->
       Call (funcForOperator operator) [forestExprToWasm a, forestExprToWasm b]
