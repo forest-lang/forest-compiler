@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedLists #-}
 
 module WASM
@@ -14,21 +15,27 @@ import qualified HaskellSyntax as F
 import Control.Arrow ((***))
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
-import Data.List.NonEmpty(NonEmpty((:|)))
+import Data.List.NonEmpty (NonEmpty((:|)))
 import Data.Maybe
 import Data.Semigroup ((<>))
 import Data.Text (Text)
+import qualified Generics.Deriving as G
 
 newtype Module =
   Module [Expression]
 
+data Declaration =
+  Declaration F.Ident
+              [F.Ident]
+              Expression
+  deriving (Show, Eq, G.Generic)
+
 data Expression
   = Const Int
-  | Func F.Ident
-         [F.Ident]
-         Expression
+  | Func Declaration
   | GetLocal F.Ident
-  | SetLocal F.Ident Expression
+  | SetLocal F.Ident
+             Expression
   | Call F.Ident
          [Expression]
   | NamedCall F.Ident
@@ -37,6 +44,7 @@ data Expression
        Expression
        (Maybe Expression)
   | Sequence (NE.NonEmpty Expression)
+  deriving (Show, Eq)
 
 indent :: Int -> String -> String
 indent level str =
@@ -53,7 +61,7 @@ forestDeclarationToWasm :: Bool -> F.Declaration -> Expression
 forestDeclarationToWasm topLevel (F.Declaration name args fexpr) =
   case (args, topLevel) of
     ([], False) -> SetLocal name expr'
-    _ -> Func name args expr'
+    _ -> Func (Declaration name args expr')
   where
     expr' = forestExprToWasm fexpr
 
@@ -68,9 +76,13 @@ forestExprToWasm fexpr =
     F.Call name arguments -> NamedCall name (map forestExprToWasm arguments)
     F.Case caseFexpr patterns ->
       constructCase (forestExprToWasm caseFexpr) (patternsToWasm patterns)
-    F.Let declarations fexpr -> Sequence $ (forestDeclarationToWasm False <$> declarations) <> [forestExprToWasm fexpr]
+    F.Let declarations fexpr ->
+      Sequence $
+      (forestDeclarationToWasm False <$> declarations) <>
+      [forestExprToWasm fexpr]
   where
-    constructCase :: Expression -> NE.NonEmpty (Expression, Expression) -> Expression
+    constructCase ::
+         Expression -> NE.NonEmpty (Expression, Expression) -> Expression
     constructCase caseExpr patterns =
       case patterns of
         [x] -> If (Call eq32 [caseExpr, fst x]) (snd x) Nothing
@@ -97,46 +109,66 @@ funcForOperator operator =
 printWasm :: Module -> String
 printWasm (Module expressions) =
   "(module\n" ++
-  indent2 (intercalate "\n" $ map printWasmExpr expressions) ++ "\n)"
+  indent2 (intercalate "\n" $ map (printWasmExpr' True) expressions) ++ "\n)"
+
+printWasmExpr' :: Bool -> Expression -> String
+printWasmExpr' topLevel expr =
+  case expr of
+    Sequence exprs -> intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)
+    Const n -> "(i32.const " ++ show n ++ ")"
+    GetLocal name -> "(get_local $" ++ F.s name ++ ")"
+    SetLocal name expr' ->
+      "(set_local $" ++ F.s name ++ " " ++ printWasmExpr expr' ++ ")"
+    Call name args ->
+      "(" ++
+      F.s name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
+    NamedCall name args ->
+      "(call $" ++
+      F.s name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
+    If conditional a b ->
+      unlines
+        ([ "(if (result i32)"
+         , indent2 $ printWasmExpr conditional
+         , indent2 $ printWasmExpr a
+         ] <>
+         [indent2 $ maybe "(i32.const 0)" printWasmExpr b, ")"])
+    Func (Declaration name args body) ->
+      case topLevel of
+        True -> unlines
+          [ unlines $ printDeclaration <$> innerFunctions body
+          , "(export \"" ++ F.s name ++ "\" (func $" ++ F.s name ++ "))"
+          , printDeclaration (Declaration name args body)
+          ]
+        False -> ""
   where
-    printWasmExpr expr =
+    innerFunctions :: Expression -> [Declaration]
+    innerFunctions expr =
       case expr of
-        Sequence exprs -> intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)
-        Const n -> "(i32.const " ++ show n ++ ")"
-        GetLocal name -> "(get_local $" ++ F.s name ++ ")"
-        SetLocal name expr' -> "(set_local $" ++ F.s name ++ " " ++ printWasmExpr expr' ++ ")"
-        Call name args ->
-          "(" ++
-          F.s name ++
-          "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
-        NamedCall name args ->
-          "(call $" ++
-          F.s name ++
-          "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
-        If conditional a b ->
-          unlines
-            ([ "(if (result i32)"
-             , indent2 $ printWasmExpr conditional
-             , indent2 $ printWasmExpr a
-             ] <>
-             [indent2 $ maybe "(i32.const 0)" printWasmExpr b, ")"])
-        Func name args body ->
-          unlines
-            [ "(export \"" ++ F.s name ++ "\" (func $" ++ F.s name ++ "))"
-            , "(func $" ++
-              F.s name ++
-              unwords (map (\x -> " (param $" ++ x ++ " i32)") (F.s <$> args)) ++
-              " (result i32)" ++ unwords (printLocal <$> locals body)
-            , indent2 $ unlines ["(return", indent2 $ printWasmExpr body, ")"]
-            , ")"
-            ]
-        where
-          locals :: Expression -> [String]
-          locals expr' =
-            case expr' of
-              SetLocal name _ -> [F.s name]
-              Sequence exprs -> concatMap locals $ NE.toList exprs
-              _ -> []
+        Sequence exprs -> concatMap innerFunctions exprs
+        Func (Declaration name args body) -> [Declaration name args body] <> innerFunctions body
+        _ -> []
+
+
+printWasmExpr :: Expression -> String
+printWasmExpr = printWasmExpr' False
+
+printDeclaration :: Declaration -> String
+printDeclaration (Declaration name args body) =
+  intercalate "\n"
+    [ "(func $" ++
+      F.s name ++
+      unwords (map (\x -> " (param $" ++ x ++ " i32)") (F.s <$> args)) ++
+      " (result i32) " ++ unwords (printLocal <$> locals body)
+    , indent2 $ unlines ["(return", indent2 $ printWasmExpr body, ")"]
+    , ")"
+    ]
+  where
+    locals :: Expression -> [String]
+    locals expr' =
+      case expr' of
+        SetLocal name _ -> [F.s name]
+        Sequence exprs -> concatMap locals $ NE.toList exprs
+        _ -> []
 
 printLocal :: String -> String
 printLocal name = "(local $" ++ name ++ " i32)"
