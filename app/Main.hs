@@ -2,7 +2,7 @@ module Main where
 
 import Compiler
 import Data.Maybe
-import Lib
+import HaskellSyntax
 import qualified WASM as W
 import System.Environment
 import Text.Megaparsec.Error

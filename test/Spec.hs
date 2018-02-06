@@ -13,7 +13,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Arbitrary
 
 import Compiler
-import Lib
+import HaskellSyntax
 
 instance Arbitrary Module where
   arbitrary = genModule
