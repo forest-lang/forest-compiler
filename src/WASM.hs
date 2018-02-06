@@ -28,6 +28,7 @@ data Expression
          [F.Ident]
          Expression
   | GetLocal F.Ident
+  | SetLocal F.Ident Expression
   | Call F.Ident
          [Expression]
   | NamedCall F.Ident
@@ -35,6 +36,7 @@ data Expression
   | If Expression
        Expression
        (Maybe Expression)
+  | Sequence (NE.NonEmpty Expression)
 
 indent :: Int -> String -> String
 indent level str =
@@ -45,11 +47,15 @@ indent2 = indent 2
 
 forestModuleToWasm :: F.Module -> Module
 forestModuleToWasm (F.Module declarations) =
-  Module (forestDeclarationToWasm <$> declarations)
+  Module (forestDeclarationToWasm True <$> declarations)
 
-forestDeclarationToWasm :: F.Declaration -> Expression
-forestDeclarationToWasm (F.Declaration name args fexpr) =
-  Func name args (forestExprToWasm fexpr)
+forestDeclarationToWasm :: Bool -> F.Declaration -> Expression
+forestDeclarationToWasm topLevel (F.Declaration name args fexpr) =
+  case (args, topLevel) of
+    ([], False) -> SetLocal name expr'
+    _ -> Func name args expr'
+  where
+    expr' = forestExprToWasm fexpr
 
 forestExprToWasm :: F.Expression -> Expression
 forestExprToWasm fexpr =
@@ -62,7 +68,7 @@ forestExprToWasm fexpr =
     F.Call name arguments -> NamedCall name (map forestExprToWasm arguments)
     F.Case caseFexpr patterns ->
       constructCase (forestExprToWasm caseFexpr) (patternsToWasm patterns)
-    F.Let _ _ -> undefined
+    F.Let declarations fexpr -> Sequence $ (forestDeclarationToWasm False <$> declarations) <> [forestExprToWasm fexpr]
   where
     constructCase :: Expression -> NE.NonEmpty (Expression, Expression) -> Expression
     constructCase caseExpr patterns =
@@ -95,8 +101,10 @@ printWasm (Module expressions) =
   where
     printWasmExpr expr =
       case expr of
+        Sequence exprs -> intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)
         Const n -> "(i32.const " ++ show n ++ ")"
         GetLocal name -> "(get_local $" ++ F.s name ++ ")"
+        SetLocal name expr' -> "(set_local $" ++ F.s name ++ " " ++ printWasmExpr expr' ++ ")"
         Call name args ->
           "(" ++
           F.s name ++
@@ -118,7 +126,17 @@ printWasm (Module expressions) =
             , "(func $" ++
               F.s name ++
               unwords (map (\x -> " (param $" ++ x ++ " i32)") (F.s <$> args)) ++
-              " (result i32)"
+              " (result i32)" ++ unwords (printLocal <$> locals body)
             , indent2 $ unlines ["(return", indent2 $ printWasmExpr body, ")"]
             , ")"
             ]
+        where
+          locals :: Expression -> [String]
+          locals expr' =
+            case expr' of
+              SetLocal name _ -> [F.s name]
+              Sequence exprs -> concatMap locals $ NE.toList exprs
+              _ -> []
+
+printLocal :: String -> String
+printLocal name = "(local $" ++ name ++ " i32)"

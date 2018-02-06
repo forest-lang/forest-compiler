@@ -4,7 +4,12 @@ default: build test
 build:
 	stack build
 
-test:
-	stack test && ruby test/integration.rb
+test: unit integration
 
-.PHONY: build test
+unit:
+	stack test
+
+integration:
+	ruby test/integration.rb
+
+.PHONY: build test unit integration
