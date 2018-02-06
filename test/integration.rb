@@ -80,6 +80,22 @@ def run_tests
 
   testCode('nested_let', code, 5 * 2 + 10 * 2)
 
+  code = <<~FOREST
+    test a =
+      case 5 of
+        5 ->
+          let
+            double n = n * 2
+          in
+            (double 2) + (double 2)
+        a -> 10
+
+    main =
+      test 5
+  FOREST
+
+  testCode('case_let', code, 8)
+
   puts 'Integration tests ran successfully!'
 end
 
