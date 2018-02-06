@@ -2,8 +2,8 @@ module Compiler
   ( compile
   ) where
 
-import Lib
+import HaskellSyntax
 import WASM
 
-compile :: String -> Either Lib.ParseError' String
+compile :: String -> Either ParseError' String
 compile s = printWasm . forestModuleToWasm <$> parseExpressionFromString s

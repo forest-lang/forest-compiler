@@ -9,7 +9,7 @@ module WASM
   , forestModuleToWasm
   ) where
 
-import qualified Lib as F
+import qualified HaskellSyntax as F
 
 import Control.Arrow ((***))
 import Data.List (intercalate)

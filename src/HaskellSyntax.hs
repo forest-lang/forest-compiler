@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# OPTIONS -Wall #-}
 
-module Lib
+module HaskellSyntax
   ( printExpression
   , printModule
   , parseExpressionFromString
