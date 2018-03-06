@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances #-}
 
 import Control.Monad
@@ -82,14 +81,10 @@ genString :: Gen NonEmptyString
 genString = NonEmptyString . NE.fromList <$> listOf1 genChar
 
 genIdentifier :: Gen Expression
-genIdentifier = do
-  name <- genIdent
-  return $ Identifier name
+genIdentifier = Identifier <$> genIdent
 
 genNumber :: Gen Expression
-genNumber = do
-  number <- arbitrarySizedNatural
-  return $ Number number
+genNumber = Number <$> arbitrarySizedNatural
 
 genDeclaration :: Gen Declaration
 genDeclaration = do
