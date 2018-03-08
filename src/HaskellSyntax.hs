@@ -11,6 +11,7 @@ module HaskellSyntax
   , ParseError'
   , OperatorExpr(..)
   , Declaration(..)
+  , Annotation(..)
   , NonEmptyString(..)
   , Ident(..)
   , rws
@@ -77,9 +78,15 @@ data Expression
   deriving (Show, Eq, G.Generic)
 
 data Declaration =
-  Declaration Ident
+  Declaration (Maybe Annotation)
+              Ident
               [Ident]
               Expression
+  deriving (Show, Eq, G.Generic)
+
+data Annotation =
+  Annotation Ident
+             (NE.NonEmpty Ident)
   deriving (Show, Eq, G.Generic)
 
 newtype Module =
@@ -130,8 +137,6 @@ table =
 number :: Parser Expression
 number = Number <$> (sc *> L.decimal)
 
-{- rword :: String -> Parser ()
-rword w = lexeme (string w *> notFollowedBy alphaNumChar) -}
 rws :: [String] -- list of reserved words
 rws = ["case", "of", "let"]
 
@@ -195,6 +200,7 @@ tld = L.nonIndented scn declaration
 
 declaration :: Parser Declaration
 declaration = do
+  annotation' <- maybeParse annotation
   sc
   name <- pIdent
   args <- many (try (sc *> pIdent))
@@ -203,11 +209,29 @@ declaration = do
   scn
   expression <- expr
   scn
-  return $ Declaration name args expression
+  return $ Declaration annotation' name args expression
+  where
+    annotation = do
+      name <- pIdent
+      sc
+      _ <- symbol "::"
+      sc
+      firstType <- pIdent
+      types <- many pType
+      scn
+      return $ Annotation name (NE.fromList $ firstType : types)
+    pType = do
+      _ <- symbol "->"
+      sc
+      pIdent
+
+maybeParse :: Parser a -> Parser (Maybe a)
+maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol ""
 
 parseModule :: Parser Module
 parseModule = Module <$> many tld <* eof
 
+-- TODO rename
 parseExpressionFromString :: String -> Either ParseError' Module
 parseExpressionFromString = parse parseModule ""
 
@@ -216,9 +240,15 @@ printModule (Module declarations) =
   intercalate "\n\n" $ map printDeclaration declarations
 
 printDeclaration :: Declaration -> String
-printDeclaration (Declaration name args expr') =
-  unwords ([s name] <> (s <$> args) <> ["="]) ++
+printDeclaration (Declaration annotation name args expr') =
+  annotationAsString <> unwords ([s name] <> (s <$> args) <> ["="]) ++
   "\n" ++ indent2 (printExpression expr')
+  where
+    annotationAsString = maybe "" printAnnotation annotation
+
+printAnnotation :: Annotation -> String
+printAnnotation (Annotation name types) =
+  s name <> " :: " <> intercalate " -> " (NE.toList $ s <$> types) <> "\n"
 
 printExpression :: Expression -> String
 printExpression expression =

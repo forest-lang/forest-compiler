@@ -1,0 +1,2 @@
+add :: Int -> Int
+add a b = a + b

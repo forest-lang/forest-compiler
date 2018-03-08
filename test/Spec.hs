@@ -30,6 +30,10 @@ instance Arbitrary Declaration where
   arbitrary = genDeclaration
   shrink = genericShrink
 
+instance Arbitrary Annotation where
+  arbitrary = genAnnotation
+  shrink = genericShrink
+
 instance Arbitrary Ident where
   arbitrary = genIdent
   shrink (Ident s) = Ident <$> filter permittedWord (shrink s)
@@ -49,6 +53,10 @@ instance Arbitrary (NE.NonEmpty (Expression, Expression)) where
   arbitrary = genNonEmpty genCaseBranch
   shrink = shrinkNonEmpty
 
+instance Arbitrary (NE.NonEmpty Ident) where
+  arbitrary = genNonEmpty genIdent
+  shrink = shrinkNonEmpty
+
 genModule :: Gen Module
 genModule = Module <$> listOf1 genDeclaration
 
@@ -60,16 +68,11 @@ shrinkNonEmpty n =
   let list = NE.toList n
       possibilities = shrink list
       nonEmptyPossibilities = filter (not . null) possibilities
-  in map NE.fromList nonEmptyPossibilities
+   in map NE.fromList nonEmptyPossibilities
 
 genExpression :: Gen Expression
 genExpression =
-  frequency
-    [ (30, genIdentifier)
-    , (30, genNumber)
-    , (3, genInfix)
-    , (1, genLet)
-    ]
+  frequency [(30, genIdentifier), (30, genNumber), (3, genInfix), (1, genLet)]
 
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
@@ -89,9 +92,19 @@ genNumber = Number <$> arbitrarySizedNatural
 genDeclaration :: Gen Declaration
 genDeclaration = do
   name <- genIdent
+  annotation <- genMaybe genAnnotation
   args <- listOf genIdent
   expr <- genExpression
-  return $ Declaration name args expr
+  return $ Declaration annotation name args expr
+
+genAnnotation :: Gen Annotation
+genAnnotation = do
+  name <- genIdent
+  types <- genNonEmpty genIdent
+  return $ Annotation name types
+
+genMaybe :: Gen a -> Gen (Maybe a)
+genMaybe g = oneof [Just <$> g, Nothing <$ g]
 
 genOperator :: Gen OperatorExpr
 genOperator = elements [Add, Subtract, Multiply, Divide]
@@ -131,9 +144,9 @@ propParseAndPrint :: Module -> Bool
 propParseAndPrint expr =
   let output = printModule expr
       reparsedExpr = parseExpressionFromString output
-  in case reparsedExpr of
-       Right newExpr -> newExpr == expr
-       Left _ -> False
+   in case reparsedExpr of
+        Right newExpr -> newExpr == expr
+        Left _ -> False
 
 main :: IO ()
 main =
@@ -147,10 +160,12 @@ main =
       let expected =
             Module
               [ Declaration
+                  Nothing
                   (ne "double")
                   [ne "a"]
                   (Infix Multiply (Identifier (ne "a")) (Number 2))
               , Declaration
+                  Nothing
                   (ne "half")
                   [ne "a"]
                   (Infix Divide (Identifier (ne "a")) (Number 2))
@@ -162,6 +177,7 @@ main =
       let expected =
             Module
               [ Declaration
+                  Nothing
                   (ne "test")
                   [ne "n"]
                   (Case
@@ -180,6 +196,7 @@ main =
       let expected =
             Module
               [ Declaration
+                  Nothing
                   (ne "test")
                   [ne "n"]
                   (Case
@@ -189,6 +206,7 @@ main =
                      , (Identifier (ne "n"), Identifier (ne "n"))
                      ])
               , Declaration
+                  Nothing
                   (ne "double")
                   [ne "x"]
                   (Infix Multiply (Identifier (ne "x")) (Number 2))
@@ -200,12 +218,13 @@ main =
       let expected =
             Module
               [ Declaration
+                  Nothing
                   (ne "a")
                   []
                   (Let
                      (NE.fromList
-                        [ Declaration (ne "foo") [] (Number 5)
-                        , Declaration (ne "bar") [] (Number 10)
+                        [ Declaration Nothing (ne "foo") [] (Number 5)
+                        , Declaration Nothing (ne "bar") [] (Number 10)
                         ])
                      (Infix Add (Identifier (ne "foo")) (Identifier (ne "bar"))))
               ]
