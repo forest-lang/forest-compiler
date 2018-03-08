@@ -1,13 +1,13 @@
 module Compiler
   ( compile
-  , printHaskellSyntax
+  , format
   ) where
 
 import HaskellSyntax
 import WASM
 
 compile :: String -> Either ParseError' String
-compile s = printWasm . forestModuleToWasm <$> parseExpressionFromString s
+compile s = printWasm . forestModuleToWasm <$> parseModule s
 
-printHaskellSyntax :: String -> Either ParseError' String
-printHaskellSyntax s = printModule <$> parseExpressionFromString s
+format :: String -> Either ParseError' String
+format s = printModule <$> parseModule s
