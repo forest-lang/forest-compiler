@@ -5,7 +5,7 @@
 module HaskellSyntax
   ( printExpression
   , printModule
-  , parseExpressionFromString
+  , parseModule
   , Expression(..)
   , Module(..)
   , ParseError'
@@ -226,14 +226,12 @@ declaration = do
       pIdent
 
 maybeParse :: Parser a -> Parser (Maybe a)
-maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol ""
+maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack
 
-parseModule :: Parser Module
-parseModule = Module <$> many tld <* eof
-
--- TODO rename
-parseExpressionFromString :: String -> Either ParseError' Module
-parseExpressionFromString = parse parseModule ""
+parseModule :: String -> Either ParseError' Module
+parseModule = parse pModule ""
+  where
+  pModule = Module <$> many tld <* eof
 
 printModule :: Module -> String
 printModule (Module declarations) =

@@ -143,7 +143,7 @@ genLet = do
 propParseAndPrint :: Module -> Bool
 propParseAndPrint expr =
   let output = printModule expr
-      reparsedExpr = parseExpressionFromString output
+      reparsedExpr = parseModule output
    in case reparsedExpr of
         Right newExpr -> newExpr == expr
         Left _ -> False
@@ -156,7 +156,7 @@ main =
       property propParseAndPrint
     it "parses a module with multple assignments" $ do
       code <- readFixture "multiple-assignments"
-      let parseResult = parseExpressionFromString code
+      let parseResult = parseModule code
       let expected =
             Module
               [ Declaration
@@ -173,7 +173,7 @@ main =
       parseResult `shouldBe` Right expected
     it "parses an assignment with a case statement" $ do
       code <- readFixture "case-statement"
-      let parseResult = parseExpressionFromString code
+      let parseResult = parseModule code
       let expected =
             Module
               [ Declaration
@@ -192,7 +192,7 @@ main =
     it
       "parses an assignment with a case statement followed by another assignment" $ do
       code <- readFixture "case-statement-and-more"
-      let parseResult = parseExpressionFromString code
+      let parseResult = parseModule code
       let expected =
             Module
               [ Declaration
@@ -214,7 +214,7 @@ main =
       parseResult `shouldBe` Right expected
     it "parses let expressions" $ do
       code <- readFixture "let"
-      let parseResult = parseExpressionFromString code
+      let parseResult = parseModule code
       let expected =
             Module
               [ Declaration
