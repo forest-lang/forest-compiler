@@ -1,22 +1,18 @@
 module Main where
 
-import Compiler
 import Data.Maybe
-import HaskellSyntax
-import qualified WASM as W
+import Safe
 import System.Environment
 import Text.Megaparsec.Error
 
-head' :: [a] -> Maybe a
-head' list =
-  case length list of
-    0 -> Nothing
-    _ -> Just $ head list
+import Compiler
+import HaskellSyntax
+import qualified WASM as W
 
 main :: IO ()
 main = do
   args <- getArgs
-  let maybeFilename = head' args
+  let maybeFilename = headMay args
   case maybeFilename of
     Just filename -> do
       contents <- readFile filename

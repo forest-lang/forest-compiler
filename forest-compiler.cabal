@@ -33,6 +33,7 @@ executable forest-compiler-exe
                      , forest-compiler
                      , megaparsec
                      , QuickCheck
+                     , safe
   default-language:    Haskell2010
 
 test-suite forest-compiler-test
