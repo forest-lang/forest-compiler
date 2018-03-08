@@ -58,7 +58,7 @@ forestModuleToWasm (F.Module declarations) =
   Module (forestDeclarationToWasm True <$> declarations)
 
 forestDeclarationToWasm :: Bool -> F.Declaration -> Expression
-forestDeclarationToWasm topLevel (F.Declaration name args fexpr) =
+forestDeclarationToWasm topLevel (F.Declaration _ name args fexpr) =
   case (args, topLevel) of
     ([], False) -> SetLocal name expr'
     _ -> Func (Declaration name args expr')

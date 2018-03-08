@@ -1,3 +1,5 @@
+-- most of this is aspirational, not real syntax yet
+
 type Vector (Num => t) = { x: t, y: t }
 
 operate : (t -> t -> t) -> Vector t -> Vector t -> Vector t
