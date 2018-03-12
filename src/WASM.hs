@@ -108,7 +108,7 @@ funcForOperator operator =
 
 printWasm :: Module -> String
 printWasm (Module expressions) =
-  "(module\n" ++
+  "(module" ++
   indent2 (intercalate "\n" $ map (printWasmExpr' True) expressions) ++ "\n)"
 
 printWasmExpr' :: Bool -> Expression -> String

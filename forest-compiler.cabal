@@ -25,7 +25,7 @@ library
                      , text
   default-language:    Haskell2010
 
-executable forest-compiler-exe
+executable forest
   hs-source-dirs:      app
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Werror -Wunused-matches -Wunused-local-binds -Wmissing-signatures -Wincomplete-patterns -Wincomplete-uni-patterns -Wincomplete-record-updates

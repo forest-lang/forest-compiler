@@ -12,15 +12,16 @@ import qualified WASM as W
 main :: IO ()
 main = do
   args <- getArgs
-  let maybeFilename = headMay args
-  case maybeFilename of
-    Just filename -> do
+  case args of
+    ["compile", filename] -> build compile filename
+    ["format", filename] -> build format filename
+    _ -> putStrLn "please provide a file to compile"
+  where
+    build f filename = do
       contents <- readFile filename
-
-      case compile contents of
+      case f contents of
         Right a -> putStrLn a
         Left err ->
           putStrLn $
           "Syntax error in " ++
           filename ++ "\n" ++ parseErrorPretty' contents err
-    Nothing -> putStrLn "please provide a file to compile"
