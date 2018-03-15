@@ -17,18 +17,28 @@ function leftPad(str) {
       const context = document.querySelector('canvas').getContext('2d');
 
       function render(t) {
+        t = Math.floor(t / 100);
+
+        var imageData = context.getImageData(0, 0, 256, 256);
+
         for(let x = 0; x < 256; x++) {
           for(let y = 0; y < 256; y++) {
             const r = red(x, y, t) % 255;
             const g = green(x, y, t) % 255;
             const b = blue(x, y, t) % 255;
 
-            const color = '#' + leftPad(r.toString(16)) + leftPad( g.toString(16) ) + leftPad( b.toString(16) );
+            // const color = '#' + leftPad(r.toString(16)) + leftPad( g.toString(16) ) + leftPad( b.toString(16) );
 
-            context.fillStyle = color;
-            context.fillRect(x, y, 1, 1);
+            imageData.data[(x + y * 256) * 4 + 0] = r;
+            imageData.data[(x + y * 256) * 4 + 1] = g;
+            imageData.data[(x + y * 256) * 4 + 2] = b;
+            imageData.data[(x + y * 256) * 4 + 3] = 255;
+            // context.fillStyle = color;
+            // context.fillRect(x, y, 1, 1);
           }
         }
+
+        context.putImageData(imageData, 0, 0);
 
         requestAnimationFrame(render);
       }

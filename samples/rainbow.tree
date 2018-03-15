@@ -1,9 +1,9 @@
 
 red x y t =
-  x + y + t / 3
+  y
 
 blue x y t =
-  y + x / 2
+  x
 
 green x y t =
-  x * y * t / 10
+  x * y * t
