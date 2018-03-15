@@ -1,0 +1,40 @@
+<html>
+  <head>
+  </head>
+  <body>
+    <canvas width="256" height="256"></canvas>
+  </body>
+  <script type="text/javascript">
+function leftPad(str) {
+  return str.length === 2 ? str : '0' + str;
+}
+    fetch('output.wasm').then(response =>
+      response.arrayBuffer()
+    ).then(bytes =>
+      WebAssembly.instantiate(bytes, {})
+    ).then(output => {
+      const {red, green, blue} = output.instance.exports;
+      const context = document.querySelector('canvas').getContext('2d');
+
+      function render(t) {
+        for(let x = 0; x < 256; x++) {
+          for(let y = 0; y < 256; y++) {
+            const r = red(x, y, t) % 255;
+            const g = green(x, y, t) % 255;
+            const b = blue(x, y, t) % 255;
+
+            const color = '#' + leftPad(r.toString(16)) + leftPad( g.toString(16) ) + leftPad( b.toString(16) );
+
+            context.fillStyle = color;
+            context.fillRect(x, y, 1, 1);
+          }
+        }
+
+        requestAnimationFrame(render);
+      }
+
+        requestAnimationFrame(render);
+    });
+  </script>
+</html>
+

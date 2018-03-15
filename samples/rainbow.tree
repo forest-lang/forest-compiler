@@ -1,0 +1,9 @@
+
+red x y t =
+  x + y + t / 3
+
+blue x y t =
+  y + x / 2
+
+green x y t =
+  x * y * t / 10
