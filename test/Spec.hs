@@ -72,7 +72,7 @@ shrinkNonEmpty n =
 
 genExpression :: Gen Expression
 genExpression =
-  frequency [(80, genIdentifier), (80, genNumber), (10, genInfix), (1, genLet), (1, genCase)]
+  frequency [(90, genIdentifier), (90, genNumber), (10, genInfix), (1, genLet), (1, genCase)]
 
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
@@ -150,10 +150,10 @@ propParseAndPrint expr =
 
 main :: IO ()
 main =
-  hspec $
+  hspec $ parallel $
   describe "Forest haskell syntax" $ do
     it "prints and reparses arbitrary expressions losslessly" $
-      property propParseAndPrint
+      withMaxSuccess 100 (property propParseAndPrint)
     it "parses a module with multple assignments" $ do
       code <- readFixture "multiple-assignments"
       let parseResult = parseModule code

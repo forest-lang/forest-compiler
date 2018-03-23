@@ -232,7 +232,7 @@ maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix s
 parseModule :: String -> Either ParseError' Module
 parseModule = parse pModule ""
   where
-  pModule = Module <$> many tld <* eof
+    pModule = Module <$> many tld <* eof
 
 printModule :: Module -> String
 printModule (Module declarations) =
@@ -259,8 +259,13 @@ printExpression expression =
     Identifier name -> s name
     Call name args -> s name ++ " " ++ unwords (printExpression <$> args)
     Case caseExpr patterns ->
-      "case " ++
-      printExpression caseExpr ++ " of\n" ++ indent2 (printPatterns patterns)
+      if isComplex caseExpr
+        then "case\n" ++
+             indent2 (printExpression caseExpr) ++
+             "\nof\n" ++ indent2 (printPatterns patterns)
+        else "case " ++
+             printExpression caseExpr ++
+             " of\n" ++ indent2 (printPatterns patterns)
     BetweenParens expr' ->
       case isComplex expr' of
         True -> "(\n" ++ indent2 (printExpression expr') ++ "\n)"
