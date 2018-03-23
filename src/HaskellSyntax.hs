@@ -267,9 +267,9 @@ printExpression expression =
              printExpression caseExpr ++
              " of\n" ++ indent2 (printPatterns patterns)
     BetweenParens expr' ->
-      case isComplex expr' of
-        True -> "(\n" ++ indent2 (printExpression expr') ++ "\n)"
-        False -> "(" ++ printExpression expr' ++ ")"
+      if isComplex expr'
+        then "(\n" ++ indent2 (printExpression expr') ++ "\n)"
+        else "(" ++ printExpression expr' ++ ")"
     Let declarations expr' -> printLet declarations expr'
   where
     printPatterns patterns = unlines $ NE.toList $ printPattern <$> patterns
