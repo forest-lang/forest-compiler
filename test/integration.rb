@@ -5,7 +5,7 @@ def assert_equal(actual, expected, message)
 end
 
 def test(name, result)
-  wast = `stack exec forest-compiler-exe ./samples/#{name}.tree`
+  wast = `stack exec forest compile ./samples/#{name}.tree`
 
   Tempfile.open("#{name}.wast") do |f|
     f.write(wast)
@@ -30,7 +30,7 @@ def testCode(name, code, result)
     f.write(code)
     f.close
 
-    wast = `stack exec forest-compiler-exe #{f.path}`
+    wast = `stack exec forest compile #{f.path}`
   end
 
   Tempfile.open("#{name}.wast") do |f|
@@ -40,8 +40,6 @@ def testCode(name, code, result)
     `wavm #{f.path}`
 
     exitcode = $?.exitstatus
-
-    puts wast
 
     assert_equal(
       exitcode,
