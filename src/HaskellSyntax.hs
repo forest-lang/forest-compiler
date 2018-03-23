@@ -124,7 +124,7 @@ symbol :: String -> Parser String
 symbol = L.symbol sc
 
 parens :: Parser Expression
-parens = BetweenParens <$> between (symbol "(") (symbol ")") expr
+parens = BetweenParens <$> between (symbol "(" *> scn) (scn <* symbol ")") expr
 
 table :: [[Operator Parser Expression]]
 table =
@@ -167,6 +167,7 @@ pCase = L.indentBlock scn p
       pattern' <- number <|> identifier
       sc
       _ <- symbol "->"
+      scn
       branchExpr <- expr
       return (pattern', branchExpr)
 
@@ -260,7 +261,10 @@ printExpression expression =
     Case caseExpr patterns ->
       "case " ++
       printExpression caseExpr ++ " of\n" ++ indent2 (printPatterns patterns)
-    BetweenParens expr' -> "(" ++ printExpression expr' ++ ")"
+    BetweenParens expr' ->
+      case isComplex expr' of
+        True -> "(\n" ++ indent2 (printExpression expr') ++ "\n)"
+        False -> "(" ++ printExpression expr' ++ ")"
     Let declarations expr' -> printLet declarations expr'
   where
     printPatterns patterns = unlines $ NE.toList $ printPattern <$> patterns
@@ -284,6 +288,7 @@ isComplex expr' =
   case expr' of
     Let {} -> True
     Case {} -> True
+    Infix _ a b -> isComplex a || isComplex b
     _ -> False
 
 indent :: Int -> String -> String

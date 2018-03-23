@@ -72,7 +72,7 @@ shrinkNonEmpty n =
 
 genExpression :: Gen Expression
 genExpression =
-  frequency [(30, genIdentifier), (30, genNumber), (3, genInfix), (1, genLet)]
+  frequency [(80, genIdentifier), (80, genNumber), (10, genInfix), (1, genLet), (1, genCase)]
 
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
