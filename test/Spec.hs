@@ -72,7 +72,13 @@ shrinkNonEmpty n =
 
 genExpression :: Gen Expression
 genExpression =
-  frequency [(90, genIdentifier), (90, genNumber), (10, genInfix), (1, genLet), (1, genCase)]
+  frequency
+    [ (90, genIdentifier)
+    , (90, genNumber)
+    , (10, genInfix)
+    , (1, genLet)
+    , (1, genCase)
+    ]
 
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
@@ -141,16 +147,17 @@ genLet = do
   return $ Let declarations expr
 
 propParseAndPrint :: Module -> Bool
-propParseAndPrint expr =
-  let output = printModule expr
-      reparsedExpr = parseModule output
-   in case reparsedExpr of
-        Right newExpr -> newExpr == expr
+propParseAndPrint m =
+  let printedModule = printModule m
+      parsedModule = parseModule printedModule
+   in case parsedModule of
+        Right newModule -> newModule == m
         Left _ -> False
 
 main :: IO ()
 main =
-  hspec $ parallel $
+  hspec $
+  parallel $
   describe "Forest haskell syntax" $ do
     it "prints and reparses arbitrary expressions losslessly" $
       withMaxSuccess 100 (property propParseAndPrint)
