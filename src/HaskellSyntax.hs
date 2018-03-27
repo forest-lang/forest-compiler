@@ -75,6 +75,7 @@ data Expression
   | Let (NE.NonEmpty Declaration)
         Expression
   | BetweenParens Expression
+  | String' String
   deriving (Show, Eq, G.Generic)
 
 data Declaration =
@@ -114,11 +115,14 @@ expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
 term :: Parser Expression
-term = sc *> (try pCase <|> try pLet <|> parens <|> call <|> number)
+term = sc *> (try pCase <|> try pLet <|> parens <|> call <|> number <|> pString)
 
 termWithoutCall :: Parser Expression
 termWithoutCall =
-  sc *> (try pCase <|> try pLet <|> parens <|> identifier <|> number)
+  sc *> (try pCase <|> try pLet <|> parens <|> identifier <|> number <|> pString)
+
+pString :: Parser Expression
+pString = String' <$> between (symbol "\"") (symbol "\"") (many $ notChar '"')
 
 symbol :: String -> Parser String
 symbol = L.symbol sc
@@ -271,6 +275,7 @@ printExpression expression =
         then "(\n" ++ indent2 (printExpression expr') ++ "\n)"
         else "(" ++ printExpression expr' ++ ")"
     Let declarations expr' -> printLet declarations expr'
+    String' str -> "\"" ++ str ++ "\""
   where
     printPatterns patterns = unlines $ NE.toList $ printPattern <$> patterns
     printPattern (patternExpr, resultExpr) =

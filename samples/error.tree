@@ -1,0 +1,8 @@
+main =
+  let
+    a =
+      "hello"
+    b =
+      "world"
+  in
+    a + b

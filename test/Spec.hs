@@ -42,7 +42,7 @@ permittedWord :: NonEmptyString -> Bool
 permittedWord (NonEmptyString s) = NE.toList s `notElem` rws
 
 instance Arbitrary NonEmptyString where
-  arbitrary = genString
+  arbitrary = genNEString
   shrink (NonEmptyString s) = NonEmptyString <$> shrinkNonEmpty s
 
 instance Arbitrary (NE.NonEmpty Declaration) where
@@ -75,7 +75,9 @@ genExpression =
   frequency
     [ (90, genIdentifier)
     , (90, genNumber)
+    , (90, genString)
     , (10, genInfix)
+    , (10, genCall)
     , (1, genLet)
     , (1, genCase)
     ]
@@ -84,16 +86,19 @@ genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
 
 genIdent :: Gen Ident
-genIdent = Ident <$> suchThat genString permittedWord
+genIdent = Ident <$> suchThat genNEString permittedWord
 
-genString :: Gen NonEmptyString
-genString = NonEmptyString . NE.fromList <$> listOf1 genChar
+genNEString :: Gen NonEmptyString
+genNEString = NonEmptyString . NE.fromList <$> listOf1 genChar
 
 genIdentifier :: Gen Expression
 genIdentifier = Identifier <$> genIdent
 
 genNumber :: Gen Expression
 genNumber = Number <$> arbitrarySizedNatural
+
+genString :: Gen Expression
+genString = String' <$> listOf genChar
 
 genDeclaration :: Gen Declaration
 genDeclaration = do
