@@ -80,6 +80,9 @@ forestExprToWasm fexpr =
       Sequence $
       (forestDeclarationToWasm False <$> declarations) <>
       [forestExprToWasm fexpr]
+    F.String' _ ->
+      -- TODO
+      undefined
   where
     constructCase ::
          Expression -> NE.NonEmpty (Expression, Expression) -> Expression
