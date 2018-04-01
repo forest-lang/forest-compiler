@@ -23,6 +23,7 @@ library
                      , megaparsec
                      , generic-deriving
                      , text
+                     , raw-strings-qq
   default-language:    Haskell2010
 
 executable forest

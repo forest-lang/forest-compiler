@@ -1,8 +1,8 @@
 main =
   let
     a =
-      "hello "
+      "Hello "
     b =
-      "world"
+      "world!"
   in
-    a + b
+    a ++ b

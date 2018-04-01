@@ -56,6 +56,7 @@ data OperatorExpr
   | Subtract
   | Divide
   | Multiply
+  | StringAdd
   deriving (Show, Eq, G.Generic)
 
 newtype Ident =
@@ -134,6 +135,7 @@ table :: [[Operator Parser Expression]]
 table =
   [ [InfixL (Infix Divide <$ char '/')]
   , [InfixL (Infix Multiply <$ char '*')]
+  , [InfixL (Infix StringAdd <$ symbol "++")]
   , [InfixL (Infix Add <$ char '+')]
   , [InfixL (Infix Subtract <$ char '-')]
   ]
@@ -315,3 +317,4 @@ operatorToString op =
     Subtract -> "-"
     Multiply -> "*"
     Divide -> "/"
+    StringAdd -> "++"
