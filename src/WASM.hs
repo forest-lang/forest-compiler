@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module WASM
   ( Expression(..)
@@ -20,6 +21,7 @@ import Data.Maybe
 import Data.Semigroup ((<>))
 import Data.Text (Text)
 import qualified Generics.Deriving as G
+import Text.RawString.QQ
 
 type BytesAllocated = Int
 
@@ -52,6 +54,55 @@ data Expression
        (Maybe Expression)
   | Sequence (NE.NonEmpty Expression)
   deriving (Show, Eq)
+
+prelude :: String
+prelude = [r|
+(func $malloc (param $size i32) (result i32)
+  (return (i32.const 64))
+)
+
+(func $string_copy (param $from i32) (param $to i32) (result i32)
+  (local $index i32)
+  (local $size i32)
+
+  (set_local $index (i32.const 1))
+  (set_local $size (i32.load8_u (get_local $from)))
+
+  (loop $copy
+    (i32.store8
+      (i32.add (get_local $to) (get_local $index))
+      (i32.load8_u (i32.add (get_local $from) (get_local $index)))
+    )
+    (set_local $index (i32.add (get_local $index) (i32.const 1)))
+    (br_if $copy (i32.lt_s (get_local $index) (get_local $size)))
+  )
+
+  (return (get_local $size))
+)
+
+(func $string_add (param $a i32) (param $b i32) (result i32)
+  (local $sum i32)
+  (local $aSize i32)
+  (local $newStr i32)
+  (return
+    (set_local $aSize (i32.load8_u (get_local $a)))
+    (set_local $sum
+      (i32.sub
+        (i32.add
+          (get_local $aSize)
+          (i32.load8_u (get_local $b))
+        )
+        (i32.const 1)
+      )
+    )
+    (set_local $newStr (call $malloc (i32.add (get_local $sum) (i32.const 1))))
+    (i32.store8 (get_local $newStr) (get_local $sum))
+    (call $string_copy (get_local $a) (get_local $newStr))
+    (call $string_copy (get_local $b) (i32.sub (i32.add (get_local $newStr) (get_local $aSize)) (i32.const 1)))
+    (get_local $newStr)
+  )
+)
+|]
 
 indent :: Int -> String -> String
 indent level str =
@@ -97,7 +148,11 @@ compileExpression m fexpr =
     F.Infix operator a b ->
       let (aExpr, m') = compileExpression m a
           (bExpr, m'') = compileExpression m' b
-       in (Call (funcForOperator operator) [aExpr, bExpr], m'')
+          name = (F.Ident $ F.NonEmptyString $ NE.fromList "string_add")
+       in
+        case operator of
+          F.StringAdd -> (NamedCall name [aExpr, bExpr], m'')
+          _ -> (Call (funcForOperator operator) [aExpr, bExpr], m'')
     F.Call name arguments ->
       let compileArgument (m', exprs) fexpr =
             let (expr, m'') = compileExpression m' fexpr
@@ -154,10 +209,11 @@ funcForOperator operator =
     F.Subtract -> "i32.sub"
     F.Multiply -> "i32.mul"
     F.Divide -> "i32.div_s"
+    F.StringAdd -> "string_add"
 
 printWasm :: Module -> String
 printWasm (Module expressions bytesAllocated) =
-  "(module\n" ++
+  "(module" ++ indent2 prelude ++ "\n\n" ++
   indent2 (printMemory bytesAllocated) ++ "\n" ++
   indent2 (intercalate "\n" $ printWasmTopLevel <$> expressions) ++ "\n)"
 
@@ -166,7 +222,7 @@ printMemory bytes =
   case bytes of
     0 -> ""
     _ ->
-      "(memory $memory " ++ show pages ++ ")\n(export \"memory\" (memory $memory))\n"
+      "(memory $memory " ++ show pages ++ ")\n(export \"memory\" (memory $memory))\n\n"
   where
     pageSize = 2 ** 16
     pages = ceiling $ (fromIntegral bytes) / pageSize

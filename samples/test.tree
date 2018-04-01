@@ -7,7 +7,7 @@ test a b =
     d = 5 /
       let
         x = 5
-        y = 10
+        y = foo 5
       in
         x + y
   in
