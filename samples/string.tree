@@ -1,7 +1,7 @@
 main =
   let
     a =
-      "hello"
+      "hello "
     b =
       "world"
   in
