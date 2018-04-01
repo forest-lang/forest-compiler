@@ -13,7 +13,7 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ["compile", filename] -> build compile filename
+    ["build", filename] -> build compile filename
     ["format", filename] -> build format filename
     _ -> putStrLn "please provide a file to compile"
   where
