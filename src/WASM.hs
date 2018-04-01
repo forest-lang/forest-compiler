@@ -12,6 +12,7 @@ module WASM
 import qualified HaskellSyntax as F
 
 import Control.Arrow ((***))
+import Data.Char
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty((:|)))
@@ -20,8 +21,11 @@ import Data.Semigroup ((<>))
 import Data.Text (Text)
 import qualified Generics.Deriving as G
 
-newtype Module =
+type BytesAllocated = Int
+
+data Module =
   Module [TopLevel]
+         BytesAllocated
 
 data Declaration =
   Declaration F.Ident
@@ -60,53 +64,65 @@ forestModuleToWasm :: F.Module -> Module
 forestModuleToWasm (F.Module declarations) =
   foldl compileDeclaration initModule declarations
   where
-    initModule = Module []
+    initModule = Module [] 0
+
+addTopLevel :: Module -> [TopLevel] -> Module
+addTopLevel (Module topLevel bytes) newTopLevel =
+  Module (topLevel ++ newTopLevel) bytes
+
+allocateBytes :: Module -> Int -> Module
+allocateBytes (Module topLevel bytes) extraBytes =
+  Module topLevel (bytes + extraBytes)
 
 compileDeclaration :: Module -> F.Declaration -> Module
-compileDeclaration (Module topLevel) (F.Declaration _ name args fexpr) =
-  Module (topLevel ++ [Func $ Declaration name args expr'] ++ extraTopLevel)
-  where
-    (expr', extraTopLevel) = compileExpression fexpr
+compileDeclaration m (F.Declaration _ name args fexpr) =
+  let (expr', m') = compileExpression m fexpr
+      func = Func $ Declaration name args expr'
+   in addTopLevel m' [func]
 
-compileInlineDeclaration :: F.Declaration -> (Maybe Expression, [TopLevel])
-compileInlineDeclaration (F.Declaration _ name args fexpr) =
-  case args of
-    [] -> (Just $ SetLocal name expr', extraTopLevel)
-    _ -> (Nothing, (Func $ Declaration name args expr') : extraTopLevel)
-  where
-    (expr', extraTopLevel) = compileExpression fexpr
+compileInlineDeclaration ::
+     Module -> F.Declaration -> (Maybe Expression, Module)
+compileInlineDeclaration m (F.Declaration _ name args fexpr) =
+  let (expr', m') = compileExpression m fexpr
+   in case args of
+        [] -> (Just $ SetLocal name expr', m')
+        _ -> (Nothing, addTopLevel m' [Func $ Declaration name args expr'])
 
-compileExpression :: F.Expression -> (Expression, [TopLevel])
-compileExpression fexpr =
+compileExpression :: Module -> F.Expression -> (Expression, Module)
+compileExpression m fexpr =
   case fexpr of
-    F.Identifier i -> (GetLocal i, [])
-    F.Number n -> (Const n, [])
-    F.BetweenParens fexpr -> compileExpression fexpr
+    F.Identifier i -> (GetLocal i, m)
+    F.Number n -> (Const n, m)
+    F.BetweenParens fexpr -> compileExpression m fexpr
     F.Infix operator a b ->
-      let (aExpr, aTopLevel) = compileExpression a
-          (bExpr, bTopLevel) = compileExpression b
-       in ( Call (funcForOperator operator) [aExpr, bExpr]
-          , aTopLevel ++ bTopLevel)
+      let (aExpr, m') = compileExpression m a
+          (bExpr, m'') = compileExpression m' b
+       in (Call (funcForOperator operator) [aExpr, bExpr], m'')
     F.Call name arguments ->
-      let argumentExpressions = fst . compileExpression <$> arguments
-          argumentTopLevel = concatMap (snd . compileExpression) arguments
-       in (NamedCall name argumentExpressions, argumentTopLevel)
+      let compileArgument (m', exprs) fexpr =
+            let (expr, m'') = compileExpression m' fexpr
+             in (m'', exprs ++ [expr])
+          (m', compiledArguments) = foldl compileArgument (m, []) arguments
+       in (NamedCall name compiledArguments, m')
     F.Case caseFexpr patterns ->
-      let (caseExpr, caseTopLevel) = compileExpression caseFexpr
-          (patternExprs, patternTopLevel) = patternsToWasm patterns
-       in ( constructCase caseExpr patternExprs
-          , caseTopLevel ++
-            concatMap fst (NE.toList patternTopLevel) ++
-            concatMap snd (NE.toList patternTopLevel))
+      let (caseExpr, m') = compileExpression m caseFexpr
+          (patternExprs, m'') = patternsToWasm m' patterns
+       in (constructCase caseExpr patternExprs, m'')
     F.Let declarations fexpr ->
-      let declarationExpressions =
-            mapMaybe (fst . compileInlineDeclaration) (NE.toList declarations)
-          declarationTopLevel =
-            concatMap (snd . compileInlineDeclaration) declarations
-          (expr', extraTopLevel) = compileExpression fexpr
-       in ( Sequence $ NE.fromList (declarationExpressions <> [expr'])
-          , declarationTopLevel <> extraTopLevel)
-    F.String' str -> (Const 0, [Data 0 str])
+      let compileDeclaration' (m', declarations) declaration =
+            let (mExpr, m'') = compileInlineDeclaration m' declaration
+             in case mExpr of
+                  Just expr -> (m'', declarations ++ [expr])
+                  Nothing -> (m'', declarations)
+          (m', declarationExpressions) =
+            foldl compileDeclaration' (m, []) declarations
+          (expr', m'') = compileExpression m' fexpr
+       in (Sequence $ NE.fromList declarationExpressions <> [expr'], m'')
+    F.String' str ->
+      let (Module _ address) = m
+          m' = addTopLevel m [Data address str]
+          m'' = allocateBytes m' (length str + 1)
+       in (Const address, m'')
   where
     constructCase ::
          Expression -> NE.NonEmpty (Expression, Expression) -> Expression
@@ -118,12 +134,13 @@ compileExpression fexpr =
             (Call eq32 [caseExpr, fst x])
             (snd x)
             (Just (constructCase caseExpr (NE.fromList xs)))
-    patternsToWasm patterns =
-      let patternExprs =
-            fmap (fst . compileExpression *** fst . compileExpression) patterns
-          patternTopLevel =
-            fmap (snd . compileExpression *** snd . compileExpression) patterns
-       in (patternExprs, patternTopLevel)
+    patternsToWasm m patterns =
+      let compilePattern (m', exprs) (a, b) =
+            let (aExpr, m'') = compileExpression m' a
+                (bExpr, m''') = compileExpression m'' b
+             in (m''', exprs ++ [(aExpr, bExpr)])
+          (m', exprs) = foldl compilePattern (m, []) patterns
+       in (NE.fromList exprs, m')
 
 eq32 :: F.Ident
 eq32 = F.Ident . F.NonEmptyString $ NE.fromList "i32.eq"
@@ -139,9 +156,20 @@ funcForOperator operator =
     F.Divide -> "i32.div_s"
 
 printWasm :: Module -> String
-printWasm (Module expressions) =
+printWasm (Module expressions bytesAllocated) =
   "(module\n" ++
+  indent2 (printMemory bytesAllocated) ++ "\n" ++
   indent2 (intercalate "\n" $ printWasmTopLevel <$> expressions) ++ "\n)"
+
+printMemory :: BytesAllocated -> String
+printMemory bytes =
+  case bytes of
+    0 -> ""
+    _ ->
+      "(memory $memory " ++ show pages ++ ")\n(export \"memory\" (memory $memory))\n"
+  where
+    pageSize = 2 ** 16
+    pages = ceiling $ (fromIntegral bytes) / pageSize
 
 printWasmTopLevel :: TopLevel -> String
 printWasmTopLevel topLevel =
@@ -152,7 +180,13 @@ printWasmTopLevel topLevel =
         , printDeclaration (Declaration name args body)
         ]
     Data offset str ->
-      "(data (i32.const " ++ show offset ++ ") \"" ++ str ++ "\")"
+      "(data (i32.const " ++ show offset ++ ") \"" ++ escape (length str + 1) ++ str ++ "\")"
+    where
+      escape n =
+        case n of
+          0 ->  "\\" ++ [chr 0]
+          34 -> "\\\""
+          _ -> [chr n]
 
 printWasmExpr :: Expression -> String
 printWasmExpr expr =
