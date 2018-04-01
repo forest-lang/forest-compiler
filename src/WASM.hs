@@ -6,7 +6,6 @@ module WASM
   ( Expression(..)
   , Module(..)
   , printWasm
-  , forestExprToWasm
   , forestModuleToWasm
   ) where
 
@@ -22,7 +21,7 @@ import Data.Text (Text)
 import qualified Generics.Deriving as G
 
 newtype Module =
-  Module [Expression]
+  Module [TopLevel]
 
 data Declaration =
   Declaration F.Ident
@@ -30,9 +29,13 @@ data Declaration =
               Expression
   deriving (Show, Eq, G.Generic)
 
+data TopLevel
+  = Func Declaration
+  | Data Int
+         String
+
 data Expression
   = Const Int
-  | Func Declaration
   | GetLocal F.Ident
   | SetLocal F.Ident
              Expression
@@ -55,34 +58,55 @@ indent2 = indent 2
 
 forestModuleToWasm :: F.Module -> Module
 forestModuleToWasm (F.Module declarations) =
-  Module (forestDeclarationToWasm True <$> declarations)
-
-forestDeclarationToWasm :: Bool -> F.Declaration -> Expression
-forestDeclarationToWasm topLevel (F.Declaration _ name args fexpr) =
-  case (args, topLevel) of
-    ([], False) -> SetLocal name expr'
-    _ -> Func (Declaration name args expr')
+  foldl compileDeclaration initModule declarations
   where
-    expr' = forestExprToWasm fexpr
+    initModule = Module []
 
-forestExprToWasm :: F.Expression -> Expression
-forestExprToWasm fexpr =
+compileDeclaration :: Module -> F.Declaration -> Module
+compileDeclaration (Module topLevel) (F.Declaration _ name args fexpr) =
+  Module (topLevel ++ [Func $ Declaration name args expr'] ++ extraTopLevel)
+  where
+    (expr', extraTopLevel) = compileExpression fexpr
+
+compileInlineDeclaration :: F.Declaration -> (Maybe Expression, [TopLevel])
+compileInlineDeclaration (F.Declaration _ name args fexpr) =
+  case args of
+    [] -> (Just $ SetLocal name expr', extraTopLevel)
+    _ -> (Nothing, (Func $ Declaration name args expr') : extraTopLevel)
+  where
+    (expr', extraTopLevel) = compileExpression fexpr
+
+compileExpression :: F.Expression -> (Expression, [TopLevel])
+compileExpression fexpr =
   case fexpr of
-    F.Identifier i -> GetLocal i
-    F.Number n -> Const n
-    F.BetweenParens fexpr -> forestExprToWasm fexpr
+    F.Identifier i -> (GetLocal i, [])
+    F.Number n -> (Const n, [])
+    F.BetweenParens fexpr -> compileExpression fexpr
     F.Infix operator a b ->
-      Call (funcForOperator operator) [forestExprToWasm a, forestExprToWasm b]
-    F.Call name arguments -> NamedCall name (map forestExprToWasm arguments)
+      let (aExpr, aTopLevel) = compileExpression a
+          (bExpr, bTopLevel) = compileExpression b
+       in ( Call (funcForOperator operator) [aExpr, bExpr]
+          , aTopLevel ++ bTopLevel)
+    F.Call name arguments ->
+      let argumentExpressions = fst . compileExpression <$> arguments
+          argumentTopLevel = concatMap (snd . compileExpression) arguments
+       in (NamedCall name argumentExpressions, argumentTopLevel)
     F.Case caseFexpr patterns ->
-      constructCase (forestExprToWasm caseFexpr) (patternsToWasm patterns)
+      let (caseExpr, caseTopLevel) = compileExpression caseFexpr
+          (patternExprs, patternTopLevel) = patternsToWasm patterns
+       in ( constructCase caseExpr patternExprs
+          , caseTopLevel ++
+            concatMap fst (NE.toList patternTopLevel) ++
+            concatMap snd (NE.toList patternTopLevel))
     F.Let declarations fexpr ->
-      Sequence $
-      (forestDeclarationToWasm False <$> declarations) <>
-      [forestExprToWasm fexpr]
-    F.String' _ ->
-      -- TODO
-      undefined
+      let declarationExpressions =
+            mapMaybe (fst . compileInlineDeclaration) (NE.toList declarations)
+          declarationTopLevel =
+            concatMap (snd . compileInlineDeclaration) declarations
+          (expr', extraTopLevel) = compileExpression fexpr
+       in ( Sequence $ NE.fromList (declarationExpressions <> [expr'])
+          , declarationTopLevel <> extraTopLevel)
+    F.String' str -> (Const 0, [Data 0 str])
   where
     constructCase ::
          Expression -> NE.NonEmpty (Expression, Expression) -> Expression
@@ -94,7 +118,12 @@ forestExprToWasm fexpr =
             (Call eq32 [caseExpr, fst x])
             (snd x)
             (Just (constructCase caseExpr (NE.fromList xs)))
-    patternsToWasm = fmap (forestExprToWasm *** forestExprToWasm)
+    patternsToWasm patterns =
+      let patternExprs =
+            fmap (fst . compileExpression *** fst . compileExpression) patterns
+          patternTopLevel =
+            fmap (snd . compileExpression *** snd . compileExpression) patterns
+       in (patternExprs, patternTopLevel)
 
 eq32 :: F.Ident
 eq32 = F.Ident . F.NonEmptyString $ NE.fromList "i32.eq"
@@ -111,11 +140,22 @@ funcForOperator operator =
 
 printWasm :: Module -> String
 printWasm (Module expressions) =
-  "(module" ++
-  indent2 (intercalate "\n" $ map (printWasmExpr' True) expressions) ++ "\n)"
+  "(module\n" ++
+  indent2 (intercalate "\n" $ printWasmTopLevel <$> expressions) ++ "\n)"
 
-printWasmExpr' :: Bool -> Expression -> String
-printWasmExpr' topLevel expr =
+printWasmTopLevel :: TopLevel -> String
+printWasmTopLevel topLevel =
+  case topLevel of
+    Func (Declaration name args body) ->
+      unlines
+        [ "(export \"" ++ F.s name ++ "\" (func $" ++ F.s name ++ "))"
+        , printDeclaration (Declaration name args body)
+        ]
+    Data offset str ->
+      "(data (i32.const " ++ show offset ++ ") \"" ++ str ++ "\")"
+
+printWasmExpr :: Expression -> String
+printWasmExpr expr =
   case expr of
     Sequence exprs -> intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)
     Const n -> "(i32.const " ++ show n ++ ")"
@@ -135,29 +175,6 @@ printWasmExpr' topLevel expr =
          , indent2 $ printWasmExpr a
          ] <>
          [indent2 $ maybe "(i32.const 0)" printWasmExpr b, ")"])
-    Func (Declaration name args body) ->
-      if topLevel
-        then unlines
-               [ unlines $ printDeclaration <$> innerFunctions body
-               , "(export \"" ++ F.s name ++ "\" (func $" ++ F.s name ++ "))"
-               , printDeclaration (Declaration name args body)
-               ]
-        else ""
-  where
-    innerFunctions :: Expression -> [Declaration]
-    innerFunctions expr =
-      case expr of
-        Sequence exprs -> concatMap innerFunctions exprs
-        Func (Declaration name args body) ->
-          [Declaration name args body] <> innerFunctions body
-        If cond a b ->
-          innerFunctions cond <> innerFunctions a <>
-          maybe [] innerFunctions b
-        SetLocal _ expr -> innerFunctions expr
-        _ -> []
-
-printWasmExpr :: Expression -> String
-printWasmExpr = printWasmExpr' False
 
 printDeclaration :: Declaration -> String
 printDeclaration (Declaration name args body) =
