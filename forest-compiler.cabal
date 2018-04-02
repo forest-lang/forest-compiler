@@ -42,6 +42,8 @@ test-suite forest-compiler-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
+  other-modules:       HaskellSyntaxSpec
+                     , Arbitrary
   build-depends:       base
                      , forest-compiler
                      , QuickCheck
