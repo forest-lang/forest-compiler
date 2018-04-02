@@ -123,7 +123,7 @@ termWithoutCall =
   sc *> (try pCase <|> try pLet <|> parens <|> identifier <|> number <|> pString)
 
 pString :: Parser Expression
-pString = String' <$> between (symbol "\"") (symbol "\"") (many $ notChar '"')
+pString = String' <$> between (string "\"") (string "\"") (many $ notChar '"')
 
 symbol :: String -> Parser String
 symbol = L.symbol sc
