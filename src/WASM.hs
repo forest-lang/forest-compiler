@@ -177,7 +177,7 @@ compileExpression m fexpr =
           (m', declarationExpressions) =
             foldl compileDeclaration' (m, []) declarations
           (expr', m'') = compileExpression m' fexpr
-       in (Sequence $ NE.fromList declarationExpressions <> [expr'], m'')
+       in (Sequence $ NE.fromList (declarationExpressions <> [expr']), m'')
     F.String' str ->
       let (Module _ address) = m
           m' = addTopLevel m [Data address str]
@@ -228,7 +228,7 @@ printWasm (Module expressions bytesAllocated) =
 printMemory :: BytesAllocated -> String
 printMemory bytes =
   case bytes of
-    0 -> ""
+    0 -> printMemory 1 -- TODO this is silly, we should omit the prelude instead
     _ ->
       "(memory $memory " ++
       show pages ++ ")\n(export \"memory\" (memory $memory))\n\n"
