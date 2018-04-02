@@ -2,24 +2,43 @@ const fs = require('fs');
 
 const bytes = fs.readFileSync('./output.wasm');
 
-WebAssembly.instantiate(bytes).then(m => {
-  const exports = m.instance.exports;
+function loadString(exports, str) {
+  const buffer = new Uint8Array(exports.memory.buffer);
 
-  const address = exports.main();
+  const address = exports.malloc(str.length + 1);
 
+  buffer[address] = str.length + 1;
+
+  for(let i = 0; i <= str.length; i++) {
+    buffer[address + 1 + i] = str.codePointAt(i);
+  }
+
+  return address;
+}
+
+function readString(exports, address) {
   const buffer = new Uint8Array(exports.memory.buffer);
 
   let output = '';
 
   let length = buffer[address] - 1;
-  console.log('address', address);
-  console.log('length', length);
 
   for(let i = 1; i <= length; i++) {
-    console.log(address + i, buffer[address + i]);
     output += String.fromCodePoint(buffer[address + i]);
   }
 
-  console.log(output);
+  return output;
+}
+
+WebAssembly.instantiate(bytes).then(m => {
+  const exports = m.instance.exports;
+
+  const name = process.argv[2];
+
+  const input = loadString(exports, name);
+
+  const address = exports.main(input);
+
+  console.log(readString(exports, address));
 });
 

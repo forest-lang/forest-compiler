@@ -1,8 +1,2 @@
-main =
-  let
-    a =
-      "Hello"
-    b =
-      "world!"
-  in
-    a ++ " " ++ b
+main name =
+  "Hello " ++ name ++ "!"
