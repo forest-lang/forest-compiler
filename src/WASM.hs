@@ -55,10 +55,16 @@ data Expression
   | Sequence (NE.NonEmpty Expression)
   deriving (Show, Eq)
 
-prelude :: String
-prelude = [r|
+-- TODO - malloc could probably be better
+prelude :: BytesAllocated -> String
+prelude bytesAllocated =
+  let freeBlock = ("(global $freeblock (mut i32) (i32.const " ++ show bytesAllocated ++ "))\n\n")
+   in freeBlock ++ [r|
 (func $malloc (param $size i32) (result i32)
-  (return (i32.const 64))
+  (local $address i32)
+  (set_local $address (get_global $freeblock))
+  (set_global $freeblock (i32.add (get_local $address) (get_local $size)))
+  (return (get_local $address))
 )
 
 (func $string_copy (param $from i32) (param $to i32) (result i32)
@@ -149,10 +155,9 @@ compileExpression m fexpr =
       let (aExpr, m') = compileExpression m a
           (bExpr, m'') = compileExpression m' b
           name = (F.Ident $ F.NonEmptyString $ NE.fromList "string_add")
-       in
-        case operator of
-          F.StringAdd -> (NamedCall name [aExpr, bExpr], m'')
-          _ -> (Call (funcForOperator operator) [aExpr, bExpr], m'')
+       in case operator of
+            F.StringAdd -> (NamedCall name [aExpr, bExpr], m'')
+            _ -> (Call (funcForOperator operator) [aExpr, bExpr], m'')
     F.Call name arguments ->
       let compileArgument (m', exprs) fexpr =
             let (expr, m'') = compileExpression m' fexpr
@@ -213,8 +218,11 @@ funcForOperator operator =
 
 printWasm :: Module -> String
 printWasm (Module expressions bytesAllocated) =
-  "(module" ++ indent2 prelude ++ "\n\n" ++
-  indent2 (printMemory bytesAllocated) ++ "\n" ++
+  "(module\n" ++
+  indent2 (prelude bytesAllocated) ++
+  "\n\n" ++
+  indent2 (printMemory bytesAllocated) ++
+  "\n" ++
   indent2 (intercalate "\n" $ printWasmTopLevel <$> expressions) ++ "\n)"
 
 printMemory :: BytesAllocated -> String
@@ -222,10 +230,11 @@ printMemory bytes =
   case bytes of
     0 -> ""
     _ ->
-      "(memory $memory " ++ show pages ++ ")\n(export \"memory\" (memory $memory))\n\n"
+      "(memory $memory " ++
+      show pages ++ ")\n(export \"memory\" (memory $memory))\n\n"
   where
     pageSize = 2 ** 16
-    pages = ceiling $ (fromIntegral bytes) / pageSize
+    pages = ceiling $ fromIntegral bytes / pageSize
 
 printWasmTopLevel :: TopLevel -> String
 printWasmTopLevel topLevel =
@@ -236,13 +245,14 @@ printWasmTopLevel topLevel =
         , printDeclaration (Declaration name args body)
         ]
     Data offset str ->
-      "(data (i32.const " ++ show offset ++ ") \"" ++ escape (length str + 1) ++ str ++ "\")"
-    where
-      escape n =
-        case n of
-          0 ->  "\\" ++ [chr 0]
-          34 -> "\\\""
-          _ -> [chr n]
+      "(data (i32.const " ++
+      show offset ++ ") \"" ++ escape (length str + 1) ++ str ++ "\")"
+  where
+    escape n =
+      case n of
+        0 -> "\\" ++ [chr 0]
+        34 -> "\\\""
+        _ -> [chr n]
 
 printWasmExpr :: Expression -> String
 printWasmExpr expr =
