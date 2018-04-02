@@ -1,23 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# OPTIONS -Wall #-}
 
 module HaskellSyntax
   ( printExpression
   , printModule
   , parseModule
-  , Expression(..)
-  , Module(..)
   , ParseError'
-  , OperatorExpr(..)
-  , Declaration(..)
-  , Annotation(..)
-  , NonEmptyString(..)
-  , Ident(..)
   , rws
   , s
   , expr
   ) where
+
+import Language
 
 import Control.Applicative (empty)
 import Control.Monad (void)
@@ -27,7 +21,6 @@ import qualified Data.List.NonEmpty as NE
 import Data.Semigroup
 import Data.Text ()
 import Data.Void (Void)
-import qualified Generics.Deriving as G
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -37,63 +30,6 @@ import Text.Megaparsec.Expr
 type Parser = Parsec Void String
 
 type ParseError' = ParseError Char Void
-
-newtype NonEmptyString =
-  NonEmptyString (NE.NonEmpty Char)
-  deriving (Show, Eq)
-
-idToString :: Ident -> String
-idToString (Ident str) = neToString str
-
-neToString :: NonEmptyString -> String
-neToString (NonEmptyString se) = NE.toList se
-
-s :: Ident -> String
-s = idToString
-
-data OperatorExpr
-  = Add
-  | Subtract
-  | Divide
-  | Multiply
-  | StringAdd
-  deriving (Show, Eq, G.Generic)
-
-newtype Ident =
-  Ident NonEmptyString
-  deriving (Show, Eq)
-
-data Expression
-  = Identifier Ident
-  | Number Int
-  | Infix OperatorExpr
-          Expression
-          Expression
-  | Call Ident
-         [Expression]
-  | Case Expression
-         (NE.NonEmpty (Expression, Expression))
-  | Let (NE.NonEmpty Declaration)
-        Expression
-  | BetweenParens Expression
-  | String' String
-  deriving (Show, Eq, G.Generic)
-
-data Declaration =
-  Declaration (Maybe Annotation)
-              Ident
-              [Ident]
-              Expression
-  deriving (Show, Eq, G.Generic)
-
-data Annotation =
-  Annotation Ident
-             (NE.NonEmpty Ident)
-  deriving (Show, Eq, G.Generic)
-
-newtype Module =
-  Module [Declaration]
-  deriving (Show, Eq, G.Generic)
 
 lineComment :: Parser ()
 lineComment = L.skipLineComment "#"

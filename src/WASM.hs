@@ -10,7 +10,7 @@ module WASM
   , forestModuleToWasm
   ) where
 
-import qualified HaskellSyntax as F
+import qualified Language as F
 
 import Control.Arrow ((***))
 import Data.Char

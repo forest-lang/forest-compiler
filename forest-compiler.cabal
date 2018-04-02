@@ -19,6 +19,7 @@ library
   exposed-modules:     HaskellSyntax
                      , WASM
                      , Compiler
+                     , Language
   build-depends:       base >= 4.7 && < 5
                      , megaparsec
                      , generic-deriving
