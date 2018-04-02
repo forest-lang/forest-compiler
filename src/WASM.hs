@@ -60,6 +60,8 @@ prelude :: BytesAllocated -> String
 prelude bytesAllocated =
   let freeBlock = ("(global $freeblock (mut i32) (i32.const " ++ show bytesAllocated ++ "))\n\n")
    in freeBlock ++ [r|
+
+(export "malloc" (func $malloc))
 (func $malloc (param $size i32) (result i32)
   (local $address i32)
   (set_local $address (get_global $freeblock))
