@@ -122,18 +122,48 @@ Right now, it supports:
  * infix arithmetic
  * function declaration and calls
  * pattern matching
+ * let expressions
  * auto code formatting!
+ * strings!
+ * memory management (kinda)
  
 Critical missing features:
-  * strings, lists, hashes, booleans
+  * lists, hashes, booleans
   * if/else
   * a type system
   * ADTs, union types
-  * memory management
   * effects
 
 So, very not ready for even simple applications.
 
+Using Forest
+---
+
+First, you'll need to make sure you have [Stack](https://docs.haskellstack.org/en/stable/README/) installed. You will also need a ruby interpreter to run the integration tests.
+
+Next, clone this project and run `make`. If you want to make changes and submit a pull request, make a fork and clone that.
+
+```
+git clone https://github.com/forest-lang/forest-compiler.git
+
+cd forest-compiler
+
+make
+```
+
+`make` will build Forest and copy the binary to your path. It will also run the tests.
+
+Forest has a single binary right now, named `forest`. It has two commands, `forest build <file>`, which produces text-format WebAssembly, and `forest format <file>`, which reprints the given file to stdout.
+
+Currently you'll need to use another tool to translate the outputted Wast to Wasm. One option is [WAVM](https://github.com/AndrewScheidecker/WAVM). In future `forest` will produce Wasm bytecode directly.
+
+Once you have compiled the WAST to WASM, you can either run it with WAVM or through node/the browser.
+
+See [MDN](https://developer.mozilla.org/en-US/docs/WebAssembly/Using_the_JavaScript_API) for more info.
+
+This is a rough experience right now, and is an area that should be better.
+
 **I have a question not answered here?**
-Please [open an issue](https://github.com/forest-lang/core/issues/new) and ask questions, offer to help, point out bugs or suggest features.
+
+Please [open an issue](https://github.com/forest-lang/forest-compiler/issues/new) and ask questions, offer to help, point out bugs or suggest features.
  

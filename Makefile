@@ -1,5 +1,8 @@
 
-default: build test
+default: build-bins test
+
+build-bins:
+	stack build --copy-bins
 
 build:
 	stack build
