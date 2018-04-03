@@ -2,7 +2,7 @@ fib i =
   case i of
     0 -> 1
     1 -> 1
-    i -> (fib i - 2) + (fib i - 1)
+    i -> fib (i - 2) + fib (i - 1)
 
-main = fib 10
-
+main =
+  fib 10
