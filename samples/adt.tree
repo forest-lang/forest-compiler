@@ -1,0 +1,12 @@
+data Maybe a
+  = Just a
+  | Nothing
+
+data Either a b
+  = Left a
+  | Right b
+
+data Expression
+  = Identifier Ident
+  | Number Int
+  | Infix OperatorExpr Expression Expression
