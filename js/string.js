@@ -33,11 +33,11 @@ function readString(exports, address) {
 WebAssembly.instantiate(bytes).then(m => {
   const exports = m.instance.exports;
 
+  const string = s => loadString(exports, s);
+
   const name = process.argv[2];
 
-  const input = loadString(exports, name);
-
-  const address = exports.main(input);
+  const address = exports.main(string(name)));
 
   console.log(readString(exports, address));
 });
