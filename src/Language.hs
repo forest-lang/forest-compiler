@@ -8,6 +8,9 @@ module Language
   , Declaration(..)
   , Annotation(..)
   , Module(..)
+  , Constructor(..)
+  , TopLevel(..)
+  , ADT(..)
   , s
   , idToString
   , neToString
@@ -17,7 +20,18 @@ import qualified Data.List.NonEmpty as NE
 import qualified Generics.Deriving as G
 
 newtype Module =
-  Module [Declaration]
+  Module [TopLevel]
+  deriving (Show, Eq, G.Generic)
+
+data TopLevel
+  = Function Declaration
+  | DataType ADT
+  deriving (Show, Eq, G.Generic)
+
+data ADT =
+  ADT Ident
+      [Ident]
+      (NE.NonEmpty Constructor)
   deriving (Show, Eq, G.Generic)
 
 data Declaration =
@@ -46,6 +60,11 @@ data Expression
         Expression
   | BetweenParens Expression
   | String' String
+  deriving (Show, Eq, G.Generic)
+
+data Constructor =
+  Constructor Ident
+              [Ident]
   deriving (Show, Eq, G.Generic)
 
 data OperatorExpr

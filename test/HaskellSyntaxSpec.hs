@@ -35,12 +35,12 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Declaration
+              [ Function $ Declaration
                   Nothing
                   (ne "double")
                   [ne "a"]
                   (Infix Multiply (Identifier (ne "a")) (Number 2))
-              , Declaration
+              , Function $ Declaration
                   Nothing
                   (ne "half")
                   [ne "a"]
@@ -52,7 +52,7 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Declaration
+              [ Function $ Declaration
                   Nothing
                   (ne "test")
                   [ne "n"]
@@ -71,7 +71,7 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Declaration
+              [ Function $ Declaration
                   Nothing
                   (ne "test")
                   [ne "n"]
@@ -81,7 +81,7 @@ haskellSyntaxSpecs =
                      , (Number 1, Number 1)
                      , (Identifier (ne "n"), Identifier (ne "n"))
                      ])
-              , Declaration
+              , Function $ Declaration
                   Nothing
                   (ne "double")
                   [ne "x"]
@@ -93,7 +93,7 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Declaration
+              [ Function $ Declaration
                   Nothing
                   (ne "a")
                   []

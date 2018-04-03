@@ -56,7 +56,8 @@ term = sc *> (try pCase <|> try pLet <|> parens <|> call <|> number <|> pString)
 
 termWithoutCall :: Parser Expression
 termWithoutCall =
-  sc *> (try pCase <|> try pLet <|> parens <|> identifier <|> number <|> pString)
+  sc *>
+  (try pCase <|> try pLet <|> parens <|> identifier <|> number <|> pString)
 
 pString :: Parser Expression
 pString = String' <$> between (string "\"") (string "\"") (many $ notChar '"')
@@ -138,8 +139,29 @@ call = do
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
 
-tld :: Parser Declaration
-tld = L.nonIndented scn declaration
+tld :: Parser TopLevel
+tld = L.nonIndented scn (dataType <|> function)
+
+dataType :: Parser TopLevel
+dataType = do
+  _ <- symbol "data"
+  name <- pIdent
+  generics <- many pIdent
+  scn
+  _ <- symbol "="
+  constructor <- pConstructor
+  constructors <- many (try (scn *> symbol "|" *> sc *> pConstructor))
+  scn
+  return $
+    DataType $ ADT name generics (NE.fromList (constructor : constructors))
+  where
+    pConstructor = do
+      name <- pIdent
+      types <- many pIdent
+      return $ Constructor name types
+
+function :: Parser TopLevel
+function = Function <$> declaration
 
 declaration :: Parser Declaration
 declaration = do
@@ -177,8 +199,24 @@ parseModule = parse pModule ""
     pModule = Module <$> many tld <* eof
 
 printModule :: Module -> String
-printModule (Module declarations) =
-  intercalate "\n\n" $ map printDeclaration declarations
+printModule (Module topLevel) = intercalate "\n\n" $ map printTopLevel topLevel
+
+printTopLevel :: TopLevel -> String
+printTopLevel topLevel =
+  case topLevel of
+    Function declaration' -> printDeclaration declaration'
+    DataType dataType' -> printDataType dataType'
+
+printDataType :: ADT -> String
+printDataType (ADT name generics constructors) =
+  "data " ++
+  unwords (s <$> name : generics) ++
+  "\n" ++
+  indent2
+    ("= " ++
+     (intercalate "\n| " . NE.toList) (printConstructor <$> constructors))
+  where
+    printConstructor (Constructor name' types) = unwords $ s <$> (name' : types)
 
 printDeclaration :: Declaration -> String
 printDeclaration (Declaration annotation name args expr') =
@@ -254,3 +292,4 @@ operatorToString op =
     Multiply -> "*"
     Divide -> "/"
     StringAdd -> "++"
+--  DataType name constructors ->

@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Arbitrary
@@ -17,8 +16,20 @@ instance Arbitrary Module where
   arbitrary = genModule
   shrink = genericShrink
 
+instance Arbitrary TopLevel where
+  arbitrary = genTopLevel
+  shrink = genericShrink
+
+instance Arbitrary ADT where
+  arbitrary = genADT
+  shrink = genericShrink
+
 instance Arbitrary Expression where
   arbitrary = genExpression
+  shrink = genericShrink
+
+instance Arbitrary Constructor where
+  arbitrary = genConstructor
   shrink = genericShrink
 
 instance Arbitrary OperatorExpr where
@@ -56,8 +67,12 @@ instance Arbitrary (NE.NonEmpty Ident) where
   arbitrary = genNonEmpty genIdent
   shrink = shrinkNonEmpty
 
+instance Arbitrary (NE.NonEmpty Constructor) where
+  arbitrary = genNonEmpty genConstructor
+  shrink = shrinkNonEmpty
+
 genModule :: Gen Module
-genModule = Module <$> listOf1 genDeclaration
+genModule = Module <$> listOf1 genTopLevel
 
 genNonEmpty :: Gen a -> Gen (NE.NonEmpty a)
 genNonEmpty gen = NE.fromList <$> listOf1 gen
@@ -98,6 +113,25 @@ genNumber = Number <$> arbitrarySizedNatural
 
 genString :: Gen Expression
 genString = String' <$> listOf genChar
+
+genTopLevel :: Gen TopLevel
+genTopLevel = oneof [genFunction, genDataType]
+  where
+    genFunction = Function <$> genDeclaration
+    genDataType = DataType <$> genADT
+
+genADT :: Gen ADT
+genADT = do
+  name <- genIdent
+  generics <- listOf genIdent
+  constructors <- genNonEmpty genConstructor
+  return $ ADT name generics constructors
+
+genConstructor :: Gen Constructor
+genConstructor = do
+  name <- genIdent
+  types <- listOf genIdent
+  return $ Constructor name types
 
 genDeclaration :: Gen Declaration
 genDeclaration = do

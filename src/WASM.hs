@@ -58,8 +58,11 @@ data Expression
 -- TODO - malloc could probably be better
 prelude :: BytesAllocated -> String
 prelude bytesAllocated =
-  let freeBlock = ("(global $freeblock (mut i32) (i32.const " ++ show bytesAllocated ++ "))\n\n")
-   in freeBlock ++ [r|
+  let freeBlock =
+        ("(global $freeblock (mut i32) (i32.const " ++
+         show bytesAllocated ++ "))\n\n")
+   in freeBlock ++
+      [r|
 
 (export "malloc" (func $malloc))
 (func $malloc (param $size i32) (result i32)
@@ -120,8 +123,8 @@ indent2 :: String -> String
 indent2 = indent 2
 
 forestModuleToWasm :: F.Module -> Module
-forestModuleToWasm (F.Module declarations) =
-  foldl compileDeclaration initModule declarations
+forestModuleToWasm (F.Module topLevel) =
+  foldl compileTopLevel initModule topLevel
   where
     initModule = Module [] 0
 
@@ -132,6 +135,12 @@ addTopLevel (Module topLevel bytes) newTopLevel =
 allocateBytes :: Module -> Int -> Module
 allocateBytes (Module topLevel bytes) extraBytes =
   Module topLevel (bytes + extraBytes)
+
+compileTopLevel :: Module -> F.TopLevel -> Module
+compileTopLevel m topLevel =
+  case topLevel of
+    F.Function declaration -> compileDeclaration m declaration
+    F.DataType _ -> m
 
 compileDeclaration :: Module -> F.Declaration -> Module
 compileDeclaration m (F.Declaration _ name args fexpr) =
