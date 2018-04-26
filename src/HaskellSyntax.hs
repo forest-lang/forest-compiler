@@ -52,12 +52,16 @@ expr :: Parser Expression
 expr = makeExprParser (lexeme term) table <?> "expression"
 
 term :: Parser Expression
-term = sc *> (try pCase <|> try pLet <|> parens <|> call <|> number <|> pString)
+term =
+  sc *>
+  (try pCase <|> try pLet <|> parens <|> call <|> number <|> pString <|>
+   prefixedComment)
 
 termWithoutCall :: Parser Expression
 termWithoutCall =
   sc *>
-  (try pCase <|> try pLet <|> parens <|> identifier <|> number <|> pString)
+  (try pCase <|> try pLet <|> parens <|> identifier <|> number <|> pString <|>
+   prefixedComment)
 
 pString :: Parser Expression
 pString = String' <$> between (string "\"") (string "\"") (many $ notChar '"')
@@ -70,11 +74,11 @@ parens = BetweenParens <$> between (symbol "(" *> scn) (scn <* symbol ")") expr
 
 table :: [[Operator Parser Expression]]
 table =
-  [ [InfixL (Infix Divide <$ char '/')]
-  , [InfixL (Infix Multiply <$ char '*')]
-  , [InfixL (Infix StringAdd <$ symbol "++")]
-  , [InfixL (Infix Add <$ char '+')]
-  , [InfixL (Infix Subtract <$ char '-')]
+  [ [InfixL (Infix Divide <$ char '/' <* scn)]
+  , [InfixL (Infix Multiply <$ (char '*' <* scn))]
+  , [InfixL (Infix StringAdd <$ symbol "++" <* scn)]
+  , [InfixL (Infix Add <$ char '+' <* scn)]
+  , [InfixL (Infix Subtract <$ char '-' <* scn)]
   ]
 
 number :: Parser Expression
@@ -136,6 +140,22 @@ call = do
       0 -> Identifier name
       _ -> Call name args
 
+comment :: Parser Comment
+comment = intercalate "\n" <$> some commentLine
+  where
+    commentLine = do
+      sc
+      _ <- symbol "--"
+      sc
+      (many $ notChar '\n') <* scn
+
+prefixedComment :: Parser Expression
+prefixedComment = do
+  str <- comment
+  scn
+  expr' <- expr
+  return $ PrefixedComment str expr'
+
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
 
@@ -165,6 +185,7 @@ function = Function <$> declaration
 
 declaration :: Parser Declaration
 declaration = do
+  comment' <- maybeParse comment
   annotation' <- maybeParse annotation
   sc
   name <- pIdent
@@ -174,7 +195,7 @@ declaration = do
   scn
   expression <- expr
   scn
-  return $ Declaration annotation' name args expression
+  return $ Declaration comment' annotation' name args expression
   where
     annotation = do
       name <- pIdent
@@ -219,11 +240,12 @@ printDataType (ADT name generics constructors) =
     printConstructor (Constructor name' types) = unwords $ s <$> (name' : types)
 
 printDeclaration :: Declaration -> String
-printDeclaration (Declaration annotation name args expr') =
-  annotationAsString <> unwords ([s name] <> (s <$> args) <> ["="]) ++
+printDeclaration (Declaration comment' annotation name args expr') =
+  printedComment <> annotationAsString <> unwords ([s name] <> (s <$> args) <> ["="]) ++
   "\n" ++ indent2 (printExpression expr')
   where
     annotationAsString = maybe "" printAnnotation annotation
+    printedComment = maybe "" printComment comment'
 
 printAnnotation :: Annotation -> String
 printAnnotation (Annotation name types) =
@@ -252,6 +274,7 @@ printExpression expression =
         else "(" ++ printExpression expr' ++ ")"
     Let declarations expr' -> printLet declarations expr'
     String' str -> "\"" ++ str ++ "\""
+    PrefixedComment str expr' -> printComment str ++ printExpression expr'
   where
     printPatterns patterns = unlines $ NE.toList $ printPattern <$> patterns
     printPattern (patternExpr, resultExpr) =
@@ -269,12 +292,21 @@ printExpression expression =
         then "\n" ++ indent2 (printExpression expr')
         else printExpression expr'
 
+printComment :: Comment -> String
+printComment comment' =
+  let commentLines = lines comment'
+      printLine line = "-- " ++ line
+   in case length commentLines of
+        0 -> "--\n"
+        _ -> unlines (printLine <$> commentLines)
+
 isComplex :: Expression -> Bool
 isComplex expr' =
   case expr' of
     Let {} -> True
     Case {} -> True
     Infix _ a b -> isComplex a || isComplex b
+    PrefixedComment _ _ -> True
     _ -> False
 
 indent :: Int -> String -> String

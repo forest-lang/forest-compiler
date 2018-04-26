@@ -1,17 +1,8 @@
-test a b =
-  let
-    c =
-      a + 5
-    b =
-      c + 3
-    d = 5 /
-      let
-        x = 5
-        y = foo 5
-      in
-        x + y
-  in
-    a * b + c / 5
+a =
+  case "" of
+    0 -> "foo"
+    1 -> "foo"
 
-foo a =
-  a * 10 + 1000 / 0 + test 5 10
+-- test
+a =
+  0

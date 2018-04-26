@@ -143,14 +143,14 @@ compileTopLevel m topLevel =
     F.DataType _ -> m
 
 compileDeclaration :: Module -> F.Declaration -> Module
-compileDeclaration m (F.Declaration _ name args fexpr) =
+compileDeclaration m (F.Declaration _ _ name args fexpr) =
   let (expr', m') = compileExpression m fexpr
       func = Func $ Declaration name args expr'
    in addTopLevel m' [func]
 
 compileInlineDeclaration ::
      Module -> F.Declaration -> (Maybe Expression, Module)
-compileInlineDeclaration m (F.Declaration _ name args fexpr) =
+compileInlineDeclaration m (F.Declaration _ _ name args fexpr) =
   let (expr', m') = compileExpression m fexpr
    in case args of
         [] -> (Just $ SetLocal name expr', m')
@@ -159,6 +159,7 @@ compileInlineDeclaration m (F.Declaration _ name args fexpr) =
 compileExpression :: Module -> F.Expression -> (Expression, Module)
 compileExpression m fexpr =
   case fexpr of
+    F.PrefixedComment _ fexpr' -> compileExpression m fexpr'
     F.Identifier i -> (GetLocal i, m)
     F.Number n -> (Const n, m)
     F.BetweenParens fexpr -> compileExpression m fexpr

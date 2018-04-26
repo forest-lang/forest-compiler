@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleInstances #-}
-module HaskellSyntaxSpec (haskellSyntaxSpecs) where
+
+module HaskellSyntaxSpec
+  ( haskellSyntaxSpecs
+  ) where
 
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
@@ -35,12 +38,16 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Function $ Declaration
+              [ Function $
+                Declaration
+                  Nothing
                   Nothing
                   (ne "double")
                   [ne "a"]
                   (Infix Multiply (Identifier (ne "a")) (Number 2))
-              , Function $ Declaration
+              , Function $
+                Declaration
+                  Nothing
                   Nothing
                   (ne "half")
                   [ne "a"]
@@ -52,7 +59,9 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Function $ Declaration
+              [ Function $
+                Declaration
+                  Nothing
                   Nothing
                   (ne "test")
                   [ne "n"]
@@ -71,7 +80,9 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Function $ Declaration
+              [ Function $
+                Declaration
+                  Nothing
                   Nothing
                   (ne "test")
                   [ne "n"]
@@ -81,7 +92,9 @@ haskellSyntaxSpecs =
                      , (Number 1, Number 1)
                      , (Identifier (ne "n"), Identifier (ne "n"))
                      ])
-              , Function $ Declaration
+              , Function $
+                Declaration
+                  Nothing
                   Nothing
                   (ne "double")
                   [ne "x"]
@@ -93,14 +106,16 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Function $ Declaration
+              [ Function $
+                Declaration
+                  Nothing
                   Nothing
                   (ne "a")
                   []
                   (Let
                      (NE.fromList
-                        [ Declaration Nothing (ne "foo") [] (Number 5)
-                        , Declaration Nothing (ne "bar") [] (Number 10)
+                        [ Declaration Nothing Nothing (ne "foo") [] (Number 5)
+                        , Declaration Nothing Nothing (ne "bar") [] (Number 10)
                         ])
                      (Infix Add (Identifier (ne "foo")) (Identifier (ne "bar"))))
               ]

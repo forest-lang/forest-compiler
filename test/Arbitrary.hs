@@ -1,12 +1,14 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleInstances #-}
+
 module Arbitrary
   (
   ) where
 
-import Language
 import HaskellSyntax
+import Language
 
+import Control.Arrow (second)
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
 import Test.QuickCheck
@@ -86,15 +88,44 @@ shrinkNonEmpty n =
 
 genExpression :: Gen Expression
 genExpression =
+  collapseComments <$>
   frequency
     [ (90, genIdentifier)
     , (90, genNumber)
     , (90, genString)
     , (10, genInfix)
     , (10, genCall)
+    , (10, genComment)
     , (1, genLet)
     , (1, genCase)
     ]
+
+collapseComments :: Expression -> Expression
+collapseComments expr =
+  case expr of
+    PrefixedComment comment expr' ->
+      case expr' of
+        PrefixedComment comment' expr'' ->
+          PrefixedComment (comment ++ "\n" ++ comment') expr''
+        _ -> expr
+    _ -> expr
+
+mapExpression :: (Expression -> Expression) -> Expression -> Expression
+mapExpression f expr =
+  case expr of
+    Identifier _ -> f expr
+    Number _ -> f expr
+    Infix op expr' expr'' -> f (Infix op (f expr') (f expr''))
+    Call name args -> f (Call name (f <$> args))
+    Case expr' cases -> f (Case (f expr') (second f <$> cases))
+    Let declarations expr' -> f (Let (mapDeclarations declarations) (f expr'))
+    BetweenParens expr' -> f (BetweenParens (f expr'))
+    String' _ -> f expr
+    PrefixedComment comment expr' -> f (PrefixedComment comment (f expr'))
+  where
+    mapDeclarations = fmap mapDeclaration
+    mapDeclaration (Declaration comment annotation name args expr') =
+      Declaration comment annotation name args (f expr')
 
 genChar :: Gen Char
 genChar = elements (['a' .. 'z'] ++ ['A' .. 'Z'])
@@ -137,9 +168,10 @@ genDeclaration :: Gen Declaration
 genDeclaration = do
   name <- genIdent
   annotation <- genMaybe genAnnotation
+  comment <- genMaybe (listOf genChar)
   args <- listOf genIdent
   expr <- genExpression
-  return $ Declaration annotation name args expr
+  return $ Declaration comment annotation name args expr
 
 genAnnotation :: Gen Annotation
 genAnnotation = do
@@ -183,3 +215,9 @@ genLet = do
   declarations <- genNonEmpty genDeclaration
   expr <- genExpression
   return $ Let declarations expr
+
+genComment :: Gen Expression
+genComment = do
+  comment <- listOf genChar
+  expr <- genExpression
+  return $ PrefixedComment comment expr

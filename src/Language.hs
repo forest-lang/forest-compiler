@@ -11,6 +11,7 @@ module Language
   , Constructor(..)
   , TopLevel(..)
   , ADT(..)
+  , Comment
   , s
   , idToString
   , neToString
@@ -18,6 +19,8 @@ module Language
 
 import qualified Data.List.NonEmpty as NE
 import qualified Generics.Deriving as G
+
+type Comment = String
 
 newtype Module =
   Module [TopLevel]
@@ -35,7 +38,8 @@ data ADT =
   deriving (Show, Eq, G.Generic)
 
 data Declaration =
-  Declaration (Maybe Annotation)
+  Declaration (Maybe Comment)
+              (Maybe Annotation)
               Ident
               [Ident]
               Expression
@@ -60,6 +64,7 @@ data Expression
         Expression
   | BetweenParens Expression
   | String' String
+  | PrefixedComment Comment Expression
   deriving (Show, Eq, G.Generic)
 
 data Constructor =
