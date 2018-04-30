@@ -28,7 +28,6 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Expr
 
 type Parser = Parsec Void String
-
 type ParseError' = ParseError Char Void
 
 lineComment :: Parser ()

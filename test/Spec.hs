@@ -15,10 +15,11 @@ import HaskellSyntax
 import Language
 
 import HaskellSyntaxSpec
+import InternalSpec
 
 main :: IO ()
 main =
-  hspec haskellSyntaxSpecs
+  hspec $ do
+    internalSpecs
+    haskellSyntaxSpecs
 
-readFixture :: String -> IO String
-readFixture name = readFile ("test/fixtures/" ++ name ++ ".tree")
