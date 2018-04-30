@@ -20,6 +20,7 @@ library
                      , WASM
                      , Compiler
                      , Language
+                     , Internal
   build-depends:       base >= 4.7 && < 5
                      , megaparsec
                      , generic-deriving
@@ -43,6 +44,7 @@ test-suite forest-compiler-test
   hs-source-dirs:      test
   main-is:             Spec.hs
   other-modules:       HaskellSyntaxSpec
+                     , InternalSpec
                      , Arbitrary
   build-depends:       base
                      , forest-compiler
