@@ -15,11 +15,11 @@ import HaskellSyntax
 import Language
 
 import HaskellSyntaxSpec
-import InternalSpec
+import TypeCheckerSpec
 
 main :: IO ()
 main =
   hspec $ do
-    internalSpecs
-    haskellSyntaxSpecs
+    typeCheckerSpecs
+    --haskellSyntaxSpecs
 
