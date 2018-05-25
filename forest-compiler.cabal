@@ -18,6 +18,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     HaskellSyntax
                      , Wasm
+                     , JavaScriptSyntax
                      , Compiler
                      , Language
                      , TypeChecker
@@ -52,6 +53,7 @@ test-suite forest-compiler-test
   hs-source-dirs:      test
   main-is:             Spec.hs
   other-modules:       HaskellSyntaxSpec
+                     , JavaScriptSyntaxSpec
                      , TypeCheckerSpec
                      , WasmSpec
                      , SampleSpec
