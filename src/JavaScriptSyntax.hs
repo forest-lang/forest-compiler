@@ -16,11 +16,26 @@ printTopLevel topLevel =
     DataType _ -> undefined
 
 printDeclaration :: Declaration -> String
-printDeclaration (Declaration _ name _ expression) =
-  "function " ++ s name ++ "() { return " ++ printExpression expression ++ " }"
+printDeclaration (Declaration _ name args expression) =
+  "function " ++
+  s name ++
+  "(" ++ printedArgs ++ ") { return " ++ printExpression expression ++ " }"
+  where
+    printedArgs = intercalate ", " $ map s args
 
 printExpression :: Expression -> String
 printExpression expression =
   case expression of
     Number number -> show number
+    Identifier identifier -> s identifier
+    Infix operator a b ->
+      intercalate
+        " "
+        [printExpression a, printOperator operator, printExpression b]
+    _ -> error $ "not implemented " ++ show expression
+
+printOperator :: OperatorExpr -> String
+printOperator operator =
+  case operator of
+    Add -> "+"
     _ -> undefined
