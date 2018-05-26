@@ -52,6 +52,26 @@ javaScriptSyntaxSpecs =
               ]
           expected = "function test(a, b) { return a + b }"
        in printModule code `shouldBe` expected
+    it "prints a function that returns a string" $ do
+      let code =
+            Module
+              [Function $ Declaration Nothing (ne "test") [] (String' "hey")]
+          expected = "function test() { return \"hey\" }"
+       in printModule code `shouldBe` expected
+    it "prints a function call with arguments" $ do
+      let code =
+            Module
+              [ Function $
+                Declaration
+                  Nothing
+                  (ne "test")
+                  [ne "a", ne "b"]
+                  (Call
+                     (ne "func")
+                     [(Identifier (ne "a")), (Identifier (ne "b"))])
+              ]
+          expected = "function test(a, b) { return func(a, b) }"
+       in printModule code `shouldBe` expected
 
 ne :: String -> Ident
 ne = Ident . NonEmptyString . NE.fromList

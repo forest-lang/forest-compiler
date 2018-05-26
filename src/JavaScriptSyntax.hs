@@ -32,6 +32,9 @@ printExpression expression =
       intercalate
         " "
         [printExpression a, printOperator operator, printExpression b]
+    String' string -> show string
+    Call name args ->
+      s name ++ "(" ++ intercalate ", " (map printExpression args) ++ ")"
     _ -> error $ "not implemented " ++ show expression
 
 printOperator :: OperatorExpr -> String
