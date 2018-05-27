@@ -24,23 +24,12 @@ javaScriptSyntaxSpecs :: SpecWith ()
 javaScriptSyntaxSpecs =
   describe "Forest JavaScript syntax" $ do
     it "prints a simple program" $ do
+      expected <- readFixture "js/simple"
       let code =
             Module [Function $ Declaration Nothing (ne "test") [] (Number 1)]
-          expected = "function test() { return 1 }"
-       in printModule code `shouldBe` expected
-    it "prints a function with an argument" $ do
-      let code =
-            Module
-              [ Function $
-                Declaration
-                  Nothing
-                  (ne "test")
-                  [ne "num"]
-                  (Identifier (ne "num"))
-              ]
-          expected = "function test(num) { return num }"
        in printModule code `shouldBe` expected
     it "prints a function with many arguments" $ do
+      expected <- readFixture "js/arguments"
       let code =
             Module
               [ Function $
@@ -50,15 +39,15 @@ javaScriptSyntaxSpecs =
                   [ne "a", ne "b"]
                   (Infix Add (Identifier (ne "a")) (Identifier (ne "b")))
               ]
-          expected = "function test(a, b) { return a + b }"
        in printModule code `shouldBe` expected
     it "prints a function that returns a string" $ do
+      expected <- readFixture "js/string"
       let code =
             Module
               [Function $ Declaration Nothing (ne "test") [] (String' "hey")]
-          expected = "function test() { return \"hey\" }"
        in printModule code `shouldBe` expected
     it "prints a function call with arguments" $ do
+      expected <- readFixture "js/call-with-arguments"
       let code =
             Module
               [ Function $
@@ -70,7 +59,30 @@ javaScriptSyntaxSpecs =
                      (ne "func")
                      [(Identifier (ne "a")), (Identifier (ne "b"))])
               ]
-          expected = "function test(a, b) { return func(a, b) }"
+       in printModule code `shouldBe` expected
+    it "prints a function with an expression inside of parens" $ do
+      expected <- readFixture "js/parens"
+      let code =
+            Module
+              [ Function $
+                Declaration Nothing (ne "test") [] (BetweenParens (Number 1))
+              ]
+       in printModule code `shouldBe` expected
+    it "prints a function with a case" $ do
+      expected <- readFixture "js/case"
+      let code =
+            Module
+              [ Function $
+                Declaration
+                  Nothing
+                  (ne "test")
+                  [ne "a"]
+                  (Case
+                     (Identifier (ne "a"))
+                     [ (String' "Foo", String' "Bar")
+                     , (String' "Ahh", String' "Woo")
+                     ])
+              ]
        in printModule code `shouldBe` expected
 
 ne :: String -> Ident
