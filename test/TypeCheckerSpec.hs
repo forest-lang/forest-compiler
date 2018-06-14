@@ -8,6 +8,7 @@ module TypeCheckerSpec
   ) where
 
 import Data.Either
+import Data.List.NonEmpty (NonEmpty(..))
 import System.Exit
 import System.IO.Temp
 import System.Process
@@ -24,6 +25,7 @@ valid =
 add :: Int -> Int -> Int
 add a b = a + b
 
+main :: Int
 main =
   add 1 1
 |]
@@ -34,6 +36,7 @@ invalid =
 add :: Int -> Int -> Int
 add a b = a + b
 
+main :: Int
 main =
   add 1 "test"
 |]
@@ -53,7 +56,7 @@ typeCheckerSpecs =
         checkResult =
           case moduleResult of
             Right m -> checkModule m
-            Left _ -> Left (CompileError "Failed to parse module")
+            Left _ -> Left (CompileError "Failed to parse module" :| [])
       in
         checkResult `shouldBe` Right ()
     it "checks invalid expressions" $
@@ -62,6 +65,6 @@ typeCheckerSpecs =
         checkResult =
           case moduleResult of
             Right m -> checkModule m
-            Left _ -> Left (CompileError "Failed to parse module")
+            Left _ -> Left (CompileError "Failed to parse module" :| [])
       in
-        checkResult `shouldBe` (Left (CompileError "No method add of type Int -> String -> Int"))
+        checkResult `shouldBe` (Left (CompileError "No function add of type Int -> String -> Int" :| []))

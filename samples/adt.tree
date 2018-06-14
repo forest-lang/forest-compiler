@@ -10,3 +10,32 @@ data Expression
   = Identifier Ident
   | Number Int
   | Infix OperatorExpr Expression Expression
+
+data Person = Person { name : String, age : Number }
+data Book = Book { name : String, age : Number }
+
+
+concept Monoid
+  join a -> a -> a
+  empty -> a
+
+concept AwesomeJoinable
+  join a -> a -> a
+  empty -> a
+
+
+join empty empty != empty
+
+
+join "a" "b"
+join empty empty == empty
+
+map : (a -> b) -> a -> b
+
+map : (a -> b) -> a -> b
+
+
+join [] [1]
+join "" "a"
+
+

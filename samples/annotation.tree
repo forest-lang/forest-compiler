@@ -1,2 +1,6 @@
+
 add :: Int -> Int -> Int
 add a b = a + b
+
+main :: Int
+main = add (add 10 15) 15

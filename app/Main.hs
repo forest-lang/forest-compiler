@@ -1,5 +1,6 @@
 module Main where
 
+import Data.List.NonEmpty (toList)
 import Data.Maybe
 import Safe
 import System.Environment
@@ -7,7 +8,7 @@ import Text.Megaparsec.Error
 
 import Compiler
 import HaskellSyntax
-import qualified WASM as W
+import TypeChecker
 
 main :: IO ()
 main = do
@@ -15,6 +16,13 @@ main = do
   case args of
     ["build", filename] -> build compile filename
     ["format", filename] -> build format filename
+    ["check", filename] -> do
+      contents <- readFile filename
+      putStrLn $
+        case check contents of
+          Success () -> "Compiled successfully"
+          ParseErr err -> parseErrorPretty err
+          CompileErr errors -> unlines . toList $ printError <$> errors
     _ -> putStrLn "please provide a file to compile"
   where
     build f filename = do
@@ -25,3 +33,4 @@ main = do
           putStrLn $
           "Syntax error in " ++
           filename ++ "\n" ++ parseErrorPretty' contents err
+    printError (CompileError error) = error
