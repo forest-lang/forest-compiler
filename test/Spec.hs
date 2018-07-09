@@ -20,6 +20,6 @@ import TypeCheckerSpec
 main :: IO ()
 main =
   hspec $ do
+    haskellSyntaxSpecs
     typeCheckerSpecs
-    --haskellSyntaxSpecs
 

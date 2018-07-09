@@ -1,1 +1,14 @@
-addOne n = 1 + n
+
+add :: Int -> Int -> Int
+add a b = a + b
+
+addOne :: Int -> Int
+addOne n = add 5 10
+
+add :: String -> String -> String
+add a b = a ++ b
+
+addOne :: String -> String
+addOne n = add n "one"
+
+a = (a 0)

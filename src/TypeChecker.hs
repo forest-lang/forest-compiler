@@ -27,6 +27,8 @@ data CompileState = CompileState
 data Type
   = Num
   | Str
+  | Lambda Type
+           Type
   deriving (Eq, Show)
 
 empty :: CompileState
@@ -74,31 +76,60 @@ checkDeclaration declarations (Declaration annotation _ _ expr) =
 
 checkExpression ::
      [Declaration] -> Expression -> Maybe Annotation -> Either CompileError ()
-checkExpression declarations expression annotation =
-  let annotationSignature (Annotation _ signature) = signature
-      returnType = stringToType . NE.last . annotationSignature <$> annotation
-   in case expression of
-        Number _ -> Right ()
-        Call name args ->
-          let types = inferType <$> args
-              fullSignature = types ++ maybeToList returnType
-           in case matchingDeclaration declarations name types returnType of
-                Nothing ->
-                  Left $
-                  CompileError $
-                  "No function " ++
-                  idToString name ++ " of type " ++ printSignature fullSignature
-                Just _ -> Right ()
+checkExpression declarations expression _ =
+  case expression of
+    Number _ -> Right ()
+    Apply expr' expr'' ->
+      let fType = inferType declarations expr'
+          aType = inferType declarations expr''
+       in case fType of
+            Lambda a _ ->
+              if aType == a
+                then Right ()
+                else Left $
+                     CompileError $
+                     "Expected " ++ show a ++ ", got " ++ show aType
+            _ ->
+              Left $
+              CompileError $
+              "Tried to apply some bad shit " ++ show fType ++ " " ++ show aType
       -- does a method exist with the right name and signature?
-        _ -> Right () -- TODO lol
+    _ -> Right () -- TODO lol
 
-inferType :: Expression -> Type
-inferType expr =
+lambdaType :: Type -> Type -> [Type] -> Type
+lambdaType left right remainder =
+  case remainder of
+    [] -> Lambda left right
+    (x:xs) -> Lambda left (lambdaType right x xs)
+
+inferType :: [Declaration] -> Expression -> Type
+inferType declarations expr =
   case expr of
     Number _ -> Num
     String' _ -> Str
-    BetweenParens expr -> inferType expr
+    BetweenParens expr -> inferType declarations expr
+    Identifier name ->
+      case find (m name) declarations of
+        Just declaration ->
+          case inferDeclarationType declaration of
+            [x] -> x
+            [x,xs] -> Lambda x xs
+            (x:xs:xss) -> lambdaType x xs xss
+            [] -> error "declaration was empty?"
+        Nothing ->
+          error $ "not sure what identifier " ++ show name ++ " refers to"
+    Apply a b ->
+      let aType = inferType declarations a
+          bType = inferType declarations b
+       in case aType of
+            Lambda x r ->
+              if x == bType
+                then r
+                else error "tried to apply the wrong type"
+            _ -> error "tried to apply something that isn't a function"
     x -> error $ "cannot infer type of " ++ show x
+  where
+    m name (Declaration _ name' _ _) = name == name'
 
 -- TODO [type] should be NonEmpty Type, handle return types
 matchingDeclaration ::
@@ -129,6 +160,7 @@ printType t =
   case t of
     Str -> "String"
     Num -> "Int"
+    Lambda a r -> printType a ++ " -> " ++ printType r
 
 printSignature :: [Type] -> String
 printSignature types = intercalate " -> " (printType <$> types)

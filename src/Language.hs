@@ -52,8 +52,7 @@ data Expression
   | Infix OperatorExpr
           Expression
           Expression
-  | Call Ident
-         [Expression]
+  | Apply Expression Expression
   | Case Expression
          (NE.NonEmpty (Expression, Expression))
   | Let (NE.NonEmpty Declaration)

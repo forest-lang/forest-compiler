@@ -169,12 +169,8 @@ compileExpression m fexpr =
        in case operator of
             F.StringAdd -> (NamedCall name [aExpr, bExpr], m'')
             _ -> (Call (funcForOperator operator) [aExpr, bExpr], m'')
-    F.Call name arguments ->
-      let compileArgument (m', exprs) fexpr =
-            let (expr, m'') = compileExpression m' fexpr
-             in (m'', exprs ++ [expr])
-          (m', compiledArguments) = foldl compileArgument (m, []) arguments
-       in (NamedCall name compiledArguments, m')
+    F.Apply _ _ ->
+      undefined
     F.Case caseFexpr patterns ->
       let (caseExpr, m') = compileExpression m caseFexpr
           (patternExprs, m'') = patternsToWasm m' patterns
