@@ -90,6 +90,7 @@ genExpression =
     [ (90, genIdentifier)
     , (90, genNumber)
     , (90, genString)
+    , (50, BetweenParens <$> genExpression)
     , (10, genInfix)
     , (10, genCall)
     , (1, genLet)
@@ -162,9 +163,9 @@ genInfix = do
 
 genCall :: Gen Expression
 genCall = do
-  name <- genIdent
-  args <- listOf1 genIdentifier
-  return $ Call name args
+  name <- genIdentifier
+  args <- oneof [genIdentifier, genNumber, BetweenParens <$> genExpression]
+  return $ Apply name args
 
 (>*<) :: Gen a -> Gen b -> Gen (a, b)
 x >*< y = liftM2 (,) x y

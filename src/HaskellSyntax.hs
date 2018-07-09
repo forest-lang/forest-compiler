@@ -28,6 +28,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Expr
 
 type Parser = Parsec Void String
+
 type ParseError' = ParseError Char Void
 
 lineComment :: Parser ()
@@ -48,7 +49,7 @@ exprWithoutCall :: Parser Expression
 exprWithoutCall = makeExprParser (lexeme termWithoutCall) table <?> "expression"
 
 expr :: Parser Expression
-expr = makeExprParser (lexeme term) table <?> "expression"
+expr = makeExprParser term table <?> "expression"
 
 term :: Parser Expression
 term = sc *> (try pCase <|> try pLet <|> parens <|> call <|> number <|> pString)
@@ -67,13 +68,16 @@ symbol = L.symbol sc
 parens :: Parser Expression
 parens = BetweenParens <$> between (symbol "(" *> scn) (scn <* symbol ")") expr
 
+spaceAround :: Parser a -> Parser a
+spaceAround p = try (sc *> try p <* sc)
+
 table :: [[Operator Parser Expression]]
 table =
-  [ [InfixL (Infix Divide <$ char '/')]
-  , [InfixL (Infix Multiply <$ char '*')]
-  , [InfixL (Infix StringAdd <$ symbol "++")]
-  , [InfixL (Infix Add <$ char '+')]
-  , [InfixL (Infix Subtract <$ char '-')]
+  [ [InfixL (Infix Divide <$ spaceAround (char '/'))]
+  , [InfixL (Infix Multiply <$ spaceAround (char '*'))]
+  , [InfixL (Infix StringAdd <$ spaceAround (symbol "++"))]
+  , [InfixL (Infix Add <$ spaceAround (char '+'))]
+  , [InfixL (Infix Subtract <$ spaceAround (char '-'))]
   ]
 
 number :: Parser Expression
@@ -83,7 +87,7 @@ rws :: [String] -- list of reserved words
 rws = ["case", "of", "let"]
 
 pIdent :: Parser Ident
-pIdent = (lexeme . try) (p >>= check)
+pIdent = try (p >>= check)
   where
     p = (:) <$> letterChar <*> many alphaNumChar
     check x =
@@ -131,9 +135,14 @@ call = do
   name <- pIdent
   args <- many (try exprWithoutCall)
   return $
-    case length args of
-      0 -> Identifier name
-      _ -> Call name args
+    case args of
+      [] -> Identifier name
+      (x:xs) -> apply (Identifier name) x (reverse xs)
+  where
+    apply left right remainder =
+      case remainder of
+        [] -> Apply left right
+        (x:xs) -> Apply (apply left right xs) x
 
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
@@ -144,8 +153,9 @@ tld = L.nonIndented scn (dataType <|> function)
 dataType :: Parser TopLevel
 dataType = do
   _ <- symbol "data"
+  _ <- sc
   name <- pIdent
-  generics <- many pIdent
+  generics <- many (sc *> pIdent)
   scn
   _ <- symbol "="
   constructor <- pConstructor
@@ -155,8 +165,8 @@ dataType = do
     DataType $ ADT name generics (NE.fromList (constructor : constructors))
   where
     pConstructor = do
-      name <- pIdent
-      types <- many pIdent
+      name <- sc *> pIdent
+      types <- many (sc *> pIdent)
       return $ Constructor name types
 
 function :: Parser TopLevel
@@ -185,7 +195,7 @@ declaration = do
       scn
       return $ Annotation name (NE.fromList $ firstType : types)
     pType = do
-      _ <- symbol "->"
+      _ <- sc <* symbol "->"
       sc
       pIdent
 
@@ -236,7 +246,7 @@ printExpression expression =
       unwords
         [printExpression expr', operatorToString op, printSecondInfix expr'']
     Identifier name -> s name
-    Call name args -> s name ++ " " ++ unwords (printExpression <$> args)
+    Apply expr' expr'' -> printExpression expr' ++ " " ++ printExpression expr''
     Case caseExpr patterns ->
       if isComplex caseExpr
         then "case\n" ++

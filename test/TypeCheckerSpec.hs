@@ -56,7 +56,7 @@ typeCheckerSpecs =
         checkResult =
           case moduleResult of
             Right m -> checkModule m
-            Left _ -> Left (CompileError "Failed to parse module" :| [])
+            Left err -> Left (CompileError ("Failed to parse module: " ++ show err) :| [])
       in
         checkResult `shouldBe` Right ()
     it "checks invalid expressions" $
@@ -65,6 +65,6 @@ typeCheckerSpecs =
         checkResult =
           case moduleResult of
             Right m -> checkModule m
-            Left _ -> Left (CompileError "Failed to parse module" :| [])
+            Left err -> Left (CompileError ("Failed to parse module: " ++ show err) :| [])
       in
-        checkResult `shouldBe` (Left (CompileError "No function add of type Int -> String -> Int" :| []))
+        checkResult `shouldBe` Left (CompileError "Expected Num, got Str" :| [])
