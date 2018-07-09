@@ -71,8 +71,20 @@ checkTopLevel state topLevel =
             Left e -> addError state e
 
 checkDeclaration :: [Declaration] -> Declaration -> Either CompileError ()
-checkDeclaration declarations (Declaration annotation _ _ expr) =
-  checkExpression declarations expr annotation
+checkDeclaration declarations declaration =
+  let (Declaration annotation _ args expr) = declaration
+      annotationTypes = inferDeclarationType declaration
+      locals = makeDeclaration <$> zip args annotationTypes
+      makeDeclaration (name, t) =
+        Declaration
+          (Just
+             (Annotation
+                name
+                (Ident (NonEmptyString $ NE.fromList (printType t)) :| [])))
+          name
+          []
+          (Number 0)
+   in checkExpression (locals ++ declarations) expr annotation
 
 checkExpression ::
      [Declaration] -> Expression -> Maybe Annotation -> Either CompileError ()
@@ -113,7 +125,7 @@ inferType declarations expr =
         Just declaration ->
           case inferDeclarationType declaration of
             [x] -> x
-            [x,xs] -> Lambda x xs
+            [x, xs] -> Lambda x xs
             (x:xs:xss) -> lambdaType x xs xss
             [] -> error "declaration was empty?"
         Nothing ->
@@ -125,7 +137,7 @@ inferType declarations expr =
             Lambda x r ->
               if x == bType
                 then r
-                else error "tried to apply the wrong type"
+                else error $ "tried to apply the wrong type, expected " ++ show x ++ ", got " ++ show bType
             _ -> error "tried to apply something that isn't a function"
     x -> error $ "cannot infer type of " ++ show x
   where
