@@ -10,5 +10,3 @@ add a b = a ++ b
 
 addOne :: String -> String
 addOne n = add n "one"
-
-a = (a 0)

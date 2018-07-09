@@ -41,30 +41,54 @@ main =
   add 1 "test"
 |]
 
+local :: String
+local =
+  [r|
+add :: Int -> Int -> Int
+add a b = a + b
+
+addOne :: Int -> Int
+addOne n =
+  add n 1
+|]
+
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe either =
   case either of
     Left _ -> Nothing
     Right b -> Just b
 
+validPrograms :: [String]
+validPrograms = [valid, local]
+
 typeCheckerSpecs :: SpecWith ()
 typeCheckerSpecs =
   describe "Type checker" $ do
     it "checks valid expressions" $
-      let
-        moduleResult = parseModule valid
-        checkResult =
-          case moduleResult of
-            Right m -> checkModule m
-            Left err -> Left (CompileError ("Failed to parse module: " ++ show err) :| [])
-      in
-        checkResult `shouldBe` Right ()
+      let moduleResult = parseModule valid
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe` Right ()
+    it "checks valid expressions that use locals" $
+      let moduleResult = parseModule local
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe` Right ()
     it "checks invalid expressions" $
-      let
-        moduleResult = parseModule invalid
-        checkResult =
-          case moduleResult of
-            Right m -> checkModule m
-            Left err -> Left (CompileError ("Failed to parse module: " ++ show err) :| [])
-      in
-        checkResult `shouldBe` Left (CompileError "Expected Num, got Str" :| [])
+      let moduleResult = parseModule invalid
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe`
+          Left (CompileError "Expected Num, got Str" :| [])
