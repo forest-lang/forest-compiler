@@ -70,11 +70,20 @@ checkTopLevel state topLevel =
             Right () -> addDeclaration state declaration
             Left e -> addError state e
 
+constructLambdas :: [Type] -> Type
+constructLambdas types =
+  case types of
+    [] -> error "applied constructLambdas to an empty array"
+    [t] -> t
+    ts -> foldr1 Lambda ts
+
 checkDeclaration :: [Declaration] -> Declaration -> Either CompileError ()
 checkDeclaration declarations declaration =
   let (Declaration annotation _ args expr) = declaration
       annotationTypes = inferDeclarationType declaration
       locals = makeDeclaration <$> zip args annotationTypes
+      expectedReturnType = constructLambdas $ drop (length args) annotationTypes
+      actualReturnType = inferType (locals ++ declarations) expr
       makeDeclaration (name, t) =
         Declaration
           (Just
@@ -84,7 +93,15 @@ checkDeclaration declarations declaration =
           name
           []
           (Number 0)
-   in checkExpression (locals ++ declarations) expr annotation
+      syntacticallyCorrect =
+        checkExpression (locals ++ declarations) expr annotation
+      typeChecks =
+        if actualReturnType == expectedReturnType
+          then Right ()
+          else Left
+                 (CompileError $ "Expected " ++
+                  show expectedReturnType ++ ", got " ++ show actualReturnType)
+   in syntacticallyCorrect >> typeChecks
 
 checkExpression ::
      [Declaration] -> Expression -> Maybe Annotation -> Either CompileError ()
@@ -105,8 +122,17 @@ checkExpression declarations expression _ =
               Left $
               CompileError $
               "Tried to apply some bad shit " ++ show fType ++ " " ++ show aType
-      -- does a method exist with the right name and signature?
-    _ -> Right () -- TODO lol
+    Infix op a b ->
+      if inferType declarations a == expected &&
+         inferType declarations b == expected
+        then Right ()
+        else Left $ CompileError "a bad infix happened"
+      where expected =
+              case op of
+                StringAdd -> Str
+                _ -> Num
+    String' _ -> Right ()
+    x -> error $ "don't know how to check expression: " ++ show x
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -137,8 +163,19 @@ inferType declarations expr =
             Lambda x r ->
               if x == bType
                 then r
-                else error $ "tried to apply the wrong type, expected " ++ show x ++ ", got " ++ show bType
+                else error $
+                     "tried to apply the wrong type, expected " ++
+                     show x ++ ", got " ++ show bType
             _ -> error "tried to apply something that isn't a function"
+    Infix op a b ->
+      if inferType declarations a == expected &&
+         inferType declarations b == expected
+        then expected
+        else error "a bad infix happened"
+      where expected =
+              case op of
+                StringAdd -> Str
+                _ -> Num
     x -> error $ "cannot infer type of " ++ show x
   where
     m name (Declaration _ name' _ _) = name == name'
