@@ -52,6 +52,13 @@ addOne n =
   add n 1
 |]
 
+wrongReturnType :: String
+wrongReturnType =
+  [r|
+foo :: Int
+foo = "test"
+|]
+
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe either =
   case either of
@@ -84,6 +91,16 @@ typeCheckerSpecs =
        in checkResult `shouldBe` Right ()
     it "checks invalid expressions" $
       let moduleResult = parseModule invalid
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe`
+          Left (CompileError "Expected Num, got Str" :| [])
+    it "fails if a function has an incorrect return type" $
+      let moduleResult = parseModule wrongReturnType
           checkResult =
             case moduleResult of
               Right m -> checkModule m
