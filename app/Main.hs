@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Main where
 
 import Data.List.NonEmpty (toList)
@@ -21,7 +22,7 @@ main = do
       putStrLn $
         case check contents of
           Success () -> "Compiled successfully"
-          ParseErr err -> parseErrorPretty err
+          ParseErr err -> reportParseError filename contents err
           CompileErr errors -> unlines . toList $ printError <$> errors
     _ -> putStrLn "please provide a file to compile"
   where
@@ -29,8 +30,9 @@ main = do
       contents <- readFile filename
       case f contents of
         Right a -> putStrLn a
-        Left err ->
-          putStrLn $
-          "Syntax error in " ++
-          filename ++ "\n" ++ parseErrorPretty' contents err
+        Left err -> putStrLn $ reportParseError filename contents err
     printError (CompileError error) = error
+
+reportParseError :: String -> String -> ParseError' -> String
+reportParseError filename contents err =
+  "Syntax error in " ++ filename ++ "\n" ++ parseErrorPretty' contents err
