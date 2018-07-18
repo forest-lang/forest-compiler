@@ -70,36 +70,32 @@ checkTopLevel state topLevel =
             Right () -> addDeclaration state declaration
             Left e -> addError state e
 
-constructLambdas :: [Type] -> Type
-constructLambdas types =
-  case types of
-    [] -> error "applied constructLambdas to an empty array"
-    [t] -> t
-    ts -> foldr1 Lambda ts
-
 checkDeclaration :: [Declaration] -> Declaration -> Either CompileError ()
 checkDeclaration declarations declaration =
   let (Declaration annotation _ args expr) = declaration
       annotationTypes = inferDeclarationType declaration
-      locals = makeDeclaration <$> zip args annotationTypes
-      expectedReturnType = constructLambdas $ drop (length args) annotationTypes
+      locals = makeDeclaration <$> zip args (NE.toList annotationTypes)
+      expectedReturnType =
+        typesToLambda (NE.fromList (NE.drop (length args) annotationTypes)) -- TODO remove NE.fromList
       actualReturnType = inferType (locals ++ declarations) expr
       makeDeclaration (name, t) =
         Declaration
-          (Just
-             (Annotation
-                name
-                (Ident (NonEmptyString $ NE.fromList (printType t)) :| [])))
+          (Just (Annotation name (annotationType t :| [])))
           name
           []
           (Number 0)
+      annotationType t =
+        case t of
+          Lambda a b -> Parenthesized (annotationType a :| [annotationType b])
+          n -> Concrete $ (Ident $ NonEmptyString $ NE.fromList (printType n))
       syntacticallyCorrect =
         checkExpression (locals ++ declarations) expr annotation
       typeChecks =
         if actualReturnType == expectedReturnType
           then Right ()
           else Left
-                 (CompileError $ "Expected " ++
+                 (CompileError $
+                  "Expected " ++
                   show expectedReturnType ++ ", got " ++ show actualReturnType)
    in syntacticallyCorrect >> typeChecks
 
@@ -148,14 +144,9 @@ inferType declarations expr =
     BetweenParens expr -> inferType declarations expr
     Identifier name ->
       case find (m name) declarations of
-        Just declaration ->
-          case inferDeclarationType declaration of
-            [x] -> x
-            [x, xs] -> Lambda x xs
-            (x:xs:xss) -> lambdaType x xs xss
-            [] -> error "declaration was empty?"
+        Just declaration -> typesToLambda . inferDeclarationType $ declaration
         Nothing ->
-          error $ "not sure what identifier " ++ show name ++ " refers to"
+          error $ "not sure what identifier " ++ show ( name) ++ " refers to"
     Apply a b ->
       let aType = inferType declarations a
           bType = inferType declarations b
@@ -180,29 +171,28 @@ inferType declarations expr =
   where
     m name (Declaration _ name' _ _) = name == name'
 
--- TODO [type] should be NonEmpty Type, handle return types
-matchingDeclaration ::
-     [Declaration] -> Ident -> [Type] -> Maybe Type -> Maybe Declaration
-matchingDeclaration declarations name signature returnType =
-  let match declaration =
-        let Declaration _ name' _ _ = declaration
-            declarationSignature = inferDeclarationType declaration
-         in name == name' &&
-            declarationSignature == (signature ++ maybeToList returnType)
-   in find match declarations
-
-inferDeclarationType :: Declaration -> [Type]
+inferDeclarationType :: Declaration -> NE.NonEmpty Type
 inferDeclarationType (Declaration annotation _ _ _) =
   case annotation of
-    Just (Annotation _ xs) -> toList (stringToType <$> xs)
+    Just (Annotation _ types) -> annotationTypeToType <$> types
     Nothing -> error "currently need annotations"
+  where
+    annotationTypeToType t =
+      case t of
+        Concrete i -> stringToType i
+        Parenthesized types -> reduceTypes types
+    reduceTypes :: NE.NonEmpty AnnotationType -> Type
+    reduceTypes types = foldr1 Lambda (annotationTypeToType <$> types)
+
+typesToLambda :: NE.NonEmpty Type -> Type
+typesToLambda = foldr1 Lambda
 
 stringToType :: Ident -> Type
 stringToType ident =
   case idToString ident of
     "String" -> Str
     "Int" -> Num
-    s -> error $ "don't know about type " ++ s
+    s -> error $ "don't know about type " ++ show s
 
 printType :: Type -> String
 printType t =
