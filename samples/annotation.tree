@@ -4,3 +4,6 @@ add a b = a + b
 
 main :: Int
 main = add (add 10 15) 15
+
+updateNumber :: (Int -> Int) -> Int -> Int
+updateNumber f i = f i

@@ -7,6 +7,7 @@ module Language
   , Expression(..)
   , Declaration(..)
   , Annotation(..)
+  , AnnotationType(..)
   , Module(..)
   , Constructor(..)
   , TopLevel(..)
@@ -43,8 +44,14 @@ data Declaration =
 
 data Annotation =
   Annotation Ident
-             (NE.NonEmpty Ident)
+             (NE.NonEmpty AnnotationType)
   deriving (Show, Eq, G.Generic)
+
+data AnnotationType
+  = Concrete Ident
+  | Parenthesized (NE.NonEmpty AnnotationType)
+  deriving (Show, Eq, G.Generic)
+
 
 data Expression
   = Identifier Ident

@@ -1,11 +1,12 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleInstances #-}
+
 module Arbitrary
   (
   ) where
 
-import Language
 import HaskellSyntax
+import Language
 
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
@@ -44,6 +45,10 @@ instance Arbitrary Annotation where
   arbitrary = genAnnotation
   shrink = genericShrink
 
+instance Arbitrary AnnotationType where
+  arbitrary = genAnnotationType
+  shrink = genericShrink
+
 instance Arbitrary Ident where
   arbitrary = genIdent
   shrink (Ident s) = Ident <$> filter permittedWord (shrink s)
@@ -69,6 +74,10 @@ instance Arbitrary (NE.NonEmpty Ident) where
 
 instance Arbitrary (NE.NonEmpty Constructor) where
   arbitrary = genNonEmpty genConstructor
+  shrink = shrinkNonEmpty
+
+instance Arbitrary (NE.NonEmpty AnnotationType) where
+  arbitrary = genNonEmpty genAnnotationType
   shrink = shrinkNonEmpty
 
 genModule :: Gen Module
@@ -145,8 +154,15 @@ genDeclaration = do
 genAnnotation :: Gen Annotation
 genAnnotation = do
   name <- genIdent
-  types <- genNonEmpty genIdent
+  types <- genNonEmpty genAnnotationType
   return $ Annotation name types
+
+genAnnotationType :: Gen AnnotationType
+genAnnotationType =
+  frequency
+    [ (100, Concrete <$> genIdent)
+    , (1, Parenthesized <$> genNonEmpty genAnnotationType)
+    ]
 
 genMaybe :: Gen a -> Gen (Maybe a)
 genMaybe g = oneof [Just <$> g, Nothing <$ g]

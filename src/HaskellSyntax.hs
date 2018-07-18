@@ -66,7 +66,10 @@ symbol :: String -> Parser String
 symbol = L.symbol sc
 
 parens :: Parser Expression
-parens = BetweenParens <$> between (symbol "(" *> scn) (scn <* symbol ")") expr
+parens = BetweenParens <$> parens' expr
+
+parens' :: Parser a -> Parser a
+parens' = between (symbol "(" *> scn) (scn <* symbol ")")
 
 spaceAround :: Parser a -> Parser a
 spaceAround p = try (sc *> try p <* sc)
@@ -190,14 +193,18 @@ declaration = do
       sc
       _ <- symbol "::"
       sc
-      firstType <- pIdent
-      types <- many pType
+      types <- annotationTypes
+      return $ Annotation name types
+    annotationTypes :: Parser (NE.NonEmpty AnnotationType)
+    annotationTypes = do
+      firstType <- pType
+      types <- many (sc *> symbol "->" *> pType)
       scn
-      return $ Annotation name (NE.fromList $ firstType : types)
-    pType = do
-      _ <- sc <* symbol "->"
-      sc
-      pIdent
+      return (NE.fromList $ firstType : types)
+    pType :: Parser AnnotationType
+    pType =
+      try $ parens' (Parenthesized <$> annotationTypes) <|>
+      (sc *> (Concrete <$> pIdent))
 
 maybeParse :: Parser a -> Parser (Maybe a)
 maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack
@@ -236,7 +243,13 @@ printDeclaration (Declaration annotation name args expr') =
 
 printAnnotation :: Annotation -> String
 printAnnotation (Annotation name types) =
-  s name <> " :: " <> intercalate " -> " (NE.toList $ s <$> types) <> "\n"
+  s name <> " :: " <> printTypes types <> "\n"
+  where
+    printTypes types' = intercalate " -> " (NE.toList (printType <$> types'))
+    printType t =
+      case t of
+        Concrete i -> s i
+        Parenthesized types' -> "(" <> printTypes types' <> ")"
 
 printExpression :: Expression -> String
 printExpression expression =
