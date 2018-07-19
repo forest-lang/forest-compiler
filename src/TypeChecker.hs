@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
-
 module TypeChecker
   ( checkModule
   , CompileError(..)
@@ -34,12 +32,6 @@ data Type
 empty :: CompileState
 empty = CompileState {declarations = [], errors = []}
 
-isRight :: Either a b -> Bool
-isRight either =
-  case either of
-    Left _ -> False
-    Right _ -> True
-
 addDeclaration :: CompileState -> Declaration -> CompileState
 addDeclaration state declaration =
   CompileState
@@ -72,7 +64,7 @@ checkTopLevel state topLevel =
 
 checkDeclaration :: [Declaration] -> Declaration -> Either CompileError ()
 checkDeclaration declarations declaration =
-  let (Declaration annotation _ args expr) = declaration
+  let (Declaration _ _ args expr) = declaration
       annotationTypes = inferDeclarationType declaration
       locals = makeDeclaration <$> zip args (NE.toList annotationTypes)
       expectedReturnType =
@@ -87,48 +79,14 @@ checkDeclaration declarations declaration =
       annotationType t =
         case t of
           Lambda a b -> Parenthesized (annotationType a :| [annotationType b])
-          n -> Concrete $ (Ident $ NonEmptyString $ NE.fromList (printType n))
-      syntacticallyCorrect =
-        checkExpression (locals ++ declarations) expr annotation
-      typeChecks =
-        if actualReturnType == expectedReturnType
+          n -> Concrete (Ident $ NonEmptyString $ NE.fromList (printType n))
+      typeChecks a =
+        if a == expectedReturnType
           then Right ()
           else Left
                  (CompileError $
-                  "Expected " ++
-                  show expectedReturnType ++ ", got " ++ show actualReturnType)
-   in syntacticallyCorrect >> typeChecks
-
-checkExpression ::
-     [Declaration] -> Expression -> Maybe Annotation -> Either CompileError ()
-checkExpression declarations expression _ =
-  case expression of
-    Number _ -> Right ()
-    Apply expr' expr'' ->
-      let fType = inferType declarations expr'
-          aType = inferType declarations expr''
-       in case fType of
-            Lambda a _ ->
-              if aType == a
-                then Right ()
-                else Left $
-                     CompileError $
-                     "Expected " ++ show a ++ ", got " ++ show aType
-            _ ->
-              Left $
-              CompileError $
-              "Tried to apply some bad shit " ++ show fType ++ " " ++ show aType
-    Infix op a b ->
-      if inferType declarations a == expected &&
-         inferType declarations b == expected
-        then Right ()
-        else Left $ CompileError "a bad infix happened"
-      where expected =
-              case op of
-                StringAdd -> Str
-                _ -> Num
-    String' _ -> Right ()
-    x -> error $ "don't know how to check expression: " ++ show x
+                  "Expected " ++ show expectedReturnType ++ ", got " ++ show a)
+   in typeChecks =<< actualReturnType
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -136,33 +94,37 @@ lambdaType left right remainder =
     [] -> Lambda left right
     (x:xs) -> Lambda left (lambdaType right x xs)
 
-inferType :: [Declaration] -> Expression -> Type
+inferType :: [Declaration] -> Expression -> Either CompileError Type
 inferType declarations expr =
   case expr of
-    Number _ -> Num
-    String' _ -> Str
+    Number _ -> Right Num
+    String' _ -> Right Str
     BetweenParens expr -> inferType declarations expr
     Identifier name ->
       case find (m name) declarations of
-        Just declaration -> typesToLambda . inferDeclarationType $ declaration
+        Just declaration ->
+          Right $ typesToLambda . inferDeclarationType $ declaration
         Nothing ->
-          error $ "not sure what identifier " ++ show ( name) ++ " refers to"
+          Left $
+          CompileError $
+          "not sure what identifier " ++ show name ++ " refers to"
     Apply a b ->
       let aType = inferType declarations a
           bType = inferType declarations b
-       in case aType of
-            Lambda x r ->
-              if x == bType
-                then r
-                else error $
-                     "tried to apply the wrong type, expected " ++
-                     show x ++ ", got " ++ show bType
-            _ -> error "tried to apply something that isn't a function"
+       in case (aType, bType) of
+            (Right (Lambda x r), Right b') ->
+              if x == b'
+                then Right r
+                else Left $
+                     CompileError $ "Expected " ++ show x ++ ", got " ++ show b'
+            _ ->
+              Left $
+              CompileError "tried to apply something that isn't a function"
     Infix op a b ->
-      if inferType declarations a == expected &&
-         inferType declarations b == expected
-        then expected
-        else error "a bad infix happened"
+      if inferType declarations a == Right expected &&
+         inferType declarations b == Right expected
+        then Right expected
+        else Left $ CompileError "a bad infix happened"
       where expected =
               case op of
                 StringAdd -> Str
