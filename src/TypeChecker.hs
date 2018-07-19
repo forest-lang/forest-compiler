@@ -8,6 +8,8 @@ import Data.List (find, intercalate)
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty, toList)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (maybeToList)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Debug.Trace (trace)
 import Safe
 
@@ -129,7 +131,18 @@ inferType declarations expr =
               case op of
                 StringAdd -> Str
                 _ -> Num
-    x -> error $ "cannot infer type of " ++ show x
+    Case _ branches ->
+      -- TODO - check case constructors and value
+      let branchTypes = sequence $ inferType declarations . snd <$> branches
+          allBranchesHaveSameType types =
+            case NE.group types of
+              [x] -> Right (NE.head x)
+              _ ->
+                Left . CompileError $
+                "Case statement had multiple return types: " ++
+                intercalate ", " (show <$> NE.toList types)
+       in branchTypes >>= allBranchesHaveSameType
+    x -> Left $ CompileError $ "cannot infer type of " ++ show x
   where
     m name (Declaration _ name' _ _) = name == name'
 
@@ -165,13 +178,3 @@ printType t =
 
 printSignature :: [Type] -> String
 printSignature types = intercalate " -> " (printType <$> types)
--- construct a graph of types, somehow
--- where the node are values and the edges are function application
---
--- add :: Int -> Int -> Int
--- add a b = a + b
---
--- node: a b (+) return
--- edges: + -> a        (+) is known to be of type Int -> Int -> Int, a is known to be of type Int
---        a -> b        Therefore (+) applied to a is Int -> Int
---        b -> return   

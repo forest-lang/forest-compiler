@@ -59,6 +59,27 @@ foo :: Int
 foo = "test"
 |]
 
+badCase :: String
+badCase =
+  [r|
+main :: Int
+main =
+  case 5 of
+    1 -> "Test"
+    2 -> 2
+|]
+
+goodCase :: String
+goodCase =
+  [r|
+main :: Int
+main =
+  case 5 of
+    1 -> 1
+    2 -> 2
+    i -> 5
+|]
+
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe either =
   case either of
@@ -109,3 +130,22 @@ typeCheckerSpecs =
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
        in checkResult `shouldBe`
           Left (CompileError "Expected Num, got Str" :| [])
+    it "fails if a case has branches that return different types" $
+      let moduleResult = parseModule badCase
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe`
+          Left (CompileError "Case statement had multiple return types: Str, Num" :| [])
+    it "passes with a valid case" $
+      let moduleResult = parseModule goodCase
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe` Right ()
