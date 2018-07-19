@@ -70,7 +70,7 @@ checkDeclaration declarations declaration =
       annotationTypes = inferDeclarationType declaration
       locals = makeDeclaration <$> zip args (NE.toList annotationTypes)
       expectedReturnType =
-        typesToLambda (NE.fromList (NE.drop (length args) annotationTypes)) -- TODO remove NE.fromList
+        collapseTypes (NE.fromList (NE.drop (length args) annotationTypes)) -- TODO remove NE.fromList
       actualReturnType = inferType (locals ++ declarations) expr
       makeDeclaration (name, t) =
         Declaration
@@ -105,7 +105,7 @@ inferType declarations expr =
     Identifier name ->
       case find (m name) declarations of
         Just declaration ->
-          Right $ typesToLambda . inferDeclarationType $ declaration
+          Right $ collapseTypes . inferDeclarationType $ declaration
         Nothing ->
           Left $
           CompileError $
@@ -123,16 +123,19 @@ inferType declarations expr =
               Left $
               CompileError "tried to apply something that isn't a function"
     Infix op a b ->
-      if inferType declarations a == Right expected &&
-         inferType declarations b == Right expected
-        then Right expected
-        else Left $ CompileError "a bad infix happened"
-      where expected =
-              case op of
-                StringAdd -> Str
-                _ -> Num
-    Case _ branches ->
+      let expected =
+            case op of
+              StringAdd -> Str
+              _ -> Num
+          types = (,) <$> inferType declarations a <*> inferType declarations b
+          checkInfix (a, b) =
+            if a == expected && b == expected
+              then Right expected
+              else Left $ CompileError "a bad infix happened"
+       in types >>= checkInfix
+    Case _ branches
       -- TODO - check case constructors and value
+     ->
       let branchTypes = sequence $ inferType declarations . snd <$> branches
           allBranchesHaveSameType types =
             case NE.group types of
@@ -142,7 +145,10 @@ inferType declarations expr =
                 "Case statement had multiple return types: " ++
                 intercalate ", " (show <$> NE.toList types)
        in branchTypes >>= allBranchesHaveSameType
-    x -> Left $ CompileError $ "cannot infer type of " ++ show x
+    Let declarations' value ->
+      let ds = NE.toList declarations' ++ declarations
+       in sequence_ (checkDeclaration ds <$> declarations') >>
+          inferType ds value
   where
     m name (Declaration _ name' _ _) = name == name'
 
@@ -157,10 +163,10 @@ inferDeclarationType (Declaration annotation _ _ _) =
         Concrete i -> stringToType i
         Parenthesized types -> reduceTypes types
     reduceTypes :: NE.NonEmpty AnnotationType -> Type
-    reduceTypes types = foldr1 Lambda (annotationTypeToType <$> types)
+    reduceTypes types = collapseTypes (annotationTypeToType <$> types)
 
-typesToLambda :: NE.NonEmpty Type -> Type
-typesToLambda = foldr1 Lambda
+collapseTypes :: NE.NonEmpty Type -> Type
+collapseTypes = foldr1 Lambda
 
 stringToType :: Ident -> Type
 stringToType ident =
