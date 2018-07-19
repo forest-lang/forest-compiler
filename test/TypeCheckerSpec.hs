@@ -80,6 +80,51 @@ main =
     i -> 5
 |]
 
+badLet :: String
+badLet =
+  [r|
+main :: Int
+main =
+  let
+    a :: Int
+    a = 5
+
+    b :: String
+    b = "test"
+  in
+    a + b
+|]
+
+goodLet :: String
+goodLet =
+  [r|
+main :: Int
+main =
+  let
+    a :: Int
+    a = 5
+
+    b :: Int
+    b = 10
+  in
+    a + b
+|]
+
+goodFunctionLet :: String
+goodFunctionLet =
+  [r|
+main :: Int
+main =
+  let
+    one :: Int
+    one = 1
+
+    addOne :: Int -> Int
+    addOne n = n + one
+  in
+    addOne 10
+|]
+
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe either =
   case either of
@@ -139,9 +184,39 @@ typeCheckerSpecs =
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
        in checkResult `shouldBe`
-          Left (CompileError "Case statement had multiple return types: Str, Num" :| [])
+          Left
+            (CompileError "Case statement had multiple return types: Str, Num" :|
+             [])
     it "passes with a valid case" $
       let moduleResult = parseModule goodCase
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe` Right ()
+    it "fails if a let has incorrect types" $
+      let moduleResult = parseModule badLet
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe`
+          Left (CompileError "a bad infix happened" :| [])
+    it "passes with a valid let" $
+      let moduleResult = parseModule goodLet
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe` Right ()
+    it "passes with a valid let that uses functions" $
+      let moduleResult = parseModule goodFunctionLet
           checkResult =
             case moduleResult of
               Right m -> checkModule m
