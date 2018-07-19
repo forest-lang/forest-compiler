@@ -7,7 +7,7 @@ import Data.Either
 import Data.List (find, intercalate)
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty, toList)
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (maybeToList)
+import Data.Maybe (mapMaybe, maybeToList)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Debug.Trace (trace)
@@ -31,9 +31,6 @@ data Type
            Type
   deriving (Eq, Show)
 
-empty :: CompileState
-empty = CompileState {declarations = [], errors = []}
-
 addDeclaration :: CompileState -> Declaration -> CompileState
 addDeclaration state declaration =
   CompileState
@@ -44,10 +41,20 @@ addError state error =
   CompileState
     {errors = error : errors state, declarations = declarations state}
 
+topLevelToDeclaration :: TopLevel -> Maybe Declaration
+topLevelToDeclaration tl =
+  case tl of
+    Function d -> Just d
+    DataType _ -> Nothing
+
 checkModule :: Module -> Either (NonEmpty CompileError) ()
 checkModule (Module topLevels) =
-  let compileState :: CompileState
-      compileState = foldl checkTopLevel empty topLevels
+  let declarations :: [Declaration]
+      declarations = mapMaybe topLevelToDeclaration topLevels
+      initialState :: CompileState
+      initialState = (CompileState {errors = [], declarations = declarations})
+      compileState :: CompileState
+      compileState = foldl checkTopLevel initialState topLevels
       e :: Maybe (NonEmpty CompileError)
       e = nonEmpty $ errors compileState
    in case e of

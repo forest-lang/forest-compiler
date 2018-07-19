@@ -125,14 +125,15 @@ main =
     addOne 10
 |]
 
-eitherToMaybe :: Either a b -> Maybe b
-eitherToMaybe either =
-  case either of
-    Left _ -> Nothing
-    Right b -> Just b
+unorderedDeclarations :: String
+unorderedDeclarations =
+ [r|
+main :: Int
+main = foo
 
-validPrograms :: [String]
-validPrograms = [valid, local]
+foo :: Int
+foo = 5
+|]
 
 typeCheckerSpecs :: SpecWith ()
 typeCheckerSpecs =
@@ -217,6 +218,15 @@ typeCheckerSpecs =
        in checkResult `shouldBe` Right ()
     it "passes with a valid let that uses functions" $
       let moduleResult = parseModule goodFunctionLet
+          checkResult =
+            case moduleResult of
+              Right m -> checkModule m
+              Left err ->
+                Left
+                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+       in checkResult `shouldBe` Right ()
+    it "is insensitive to the order of declarations" $
+      let moduleResult = parseModule unorderedDeclarations
           checkResult =
             case moduleResult of
               Right m -> checkModule m
