@@ -126,11 +126,11 @@ Right now, it supports:
  * auto code formatting!
  * strings!
  * memory management (kinda)
+ * a type system (simple but there)
  
 Critical missing features:
   * lists, hashes, booleans
   * if/else
-  * a type system
   * ADTs, union types
   * effects
 
