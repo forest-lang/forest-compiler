@@ -54,9 +54,13 @@ def run_tests
   test('let', 15)
 
   code = <<~FOREST
+    main :: Int
     main =
       let
+        add1 :: Int -> Int
         add1 n = n + 1
+
+        y :: Int
         y = 10
       in
         y + add1 5
@@ -65,10 +69,13 @@ def run_tests
   testCode('complex_let', code, 16)
 
   code = <<~FOREST
+    main :: Int
     main =
       let
+        doubleSum :: Int -> Int -> Int
         doubleSum a b =
           let
+            double :: Int -> Int
             double n = n * 2
           in
             (double a) + (double b)
@@ -79,15 +86,18 @@ def run_tests
   testCode('nested_let', code, 5 * 2 + 10 * 2)
 
   code = <<~FOREST
+    test :: Int -> Int
     test a =
       case 5 of
         5 ->
           let
+            double :: Int -> Int
             double n = n * 2
           in
             (double 2) + (double 2)
         a -> 10
 
+    main :: Int
     main =
       test 5
   FOREST

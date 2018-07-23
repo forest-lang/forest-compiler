@@ -72,9 +72,9 @@ main =
 goodCase :: String
 goodCase =
   [r|
-main :: Int
-main =
-  case 5 of
+main :: Int -> Int
+main i =
+  case i of
     1 -> 1
     2 -> 2
     i -> 5
@@ -142,7 +142,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule valid
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -151,7 +151,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule local
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -160,7 +160,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule invalid
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -170,7 +170,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule wrongReturnType
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -180,7 +180,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule badCase
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -192,7 +192,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule goodCase
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -201,7 +201,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule badLet
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -211,7 +211,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule goodLet
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -220,7 +220,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule goodFunctionLet
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])
@@ -229,7 +229,7 @@ typeCheckerSpecs =
       let moduleResult = parseModule unorderedDeclarations
           checkResult =
             case moduleResult of
-              Right m -> checkModule m
+              Right m -> () <$ checkModule m
               Left err ->
                 Left
                   (CompileError ("Failed to parse module: " ++ show err) :| [])

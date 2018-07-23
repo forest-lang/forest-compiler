@@ -29,7 +29,7 @@ haskellSyntaxSpecs :: SpecWith ()
 haskellSyntaxSpecs =
   describe "Forest haskell syntax" $ do
     it "prints and reparses arbitrary expressions losslessly" $
-      withMaxSuccess 100 (property propParseAndPrint)
+      withMaxSuccess 50 (property propParseAndPrint)
     it "parses a module with multple assignments" $ do
       code <- readFixture "multiple-assignments"
       let parseResult = parseModule code
