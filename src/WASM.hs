@@ -141,14 +141,14 @@ allocateBytes (Module topLevel bytes) extraBytes =
 
 compileDeclaration :: Module -> TypedDeclaration -> Module
 compileDeclaration m (TypedDeclaration name args fexpr) =
-  let (expr', m') = compileExpression m fexpr
+  let (m', expr') = compileExpression m fexpr
       func = Func $ Declaration name (fst <$> args) expr'
    in addTopLevel m' [func]
 
 compileInlineDeclaration ::
      Module -> TypedDeclaration -> (Maybe Expression, Module)
 compileInlineDeclaration m (TypedDeclaration name args fexpr) =
-  let (expr', m') = compileExpression m fexpr
+  let (m', expr') = compileExpression m fexpr
    in case args of
         [] -> (Just $ SetLocal name expr', m')
         _ ->
@@ -160,38 +160,38 @@ compileExpressions ::
 compileExpressions m = foldl compile (m, [])
   where
     compile (m, xs) te =
-      let (e, m') = compileExpression m te
+      let (m', e) = compileExpression m te
        in (m', e : xs)
 
-compileExpression :: Module -> TypedExpression -> (Expression, Module)
+compileExpression :: Module -> TypedExpression -> (Module, Expression)
 compileExpression m fexpr =
   case fexpr of
-    T.Identifier _ i -> (GetLocal i, m)
-    T.Number n -> (Const n, m)
+    T.Identifier _ i -> (m, GetLocal i)
+    T.Number n -> (m, Const n)
     T.BetweenParens fexpr -> compileExpression m fexpr
     T.Infix _ operator a b ->
-      let (aExpr, m') = compileExpression m a
-          (bExpr, m'') = compileExpression m' b
+      let (m', aExpr) = compileExpression m a
+          (m'', bExpr) = compileExpression m' b
           name = (F.Ident $ F.NonEmptyString $ NE.fromList "string_add")
        in case operator of
-            F.StringAdd -> (NamedCall name [aExpr, bExpr], m'')
-            _ -> (Call (funcForOperator operator) [aExpr, bExpr], m'')
+            F.StringAdd -> (m'', NamedCall name [aExpr, bExpr])
+            _ -> (m'', Call (funcForOperator operator) [aExpr, bExpr])
     T.Apply _ left right ->
       case left of
         T.Apply _ (T.Identifier _ name) r' ->
           let (m', exprs) = compileExpressions m [right, r']
-           in (Sequence $ NE.fromList (exprs ++ [NamedCall name []]), m')
+           in (m', Sequence $ NE.fromList (exprs ++ [NamedCall name []]))
         T.Identifier _ name ->
-          let (r, m') = compileExpression m right
-           in (NamedCall name [r], m')
+          let (m', r) = compileExpression m right
+           in (m', NamedCall name [r])
         _ -> error $ "do not know what to do with " ++ show left
       -- say that left refers to a function declaration
       -- and that right refers to a number
       -- we want to generate a namedcall
     T.Case _ caseFexpr patterns ->
-      let (caseExpr, m') = compileExpression m caseFexpr
-          (patternExprs, m'') = patternsToWasm m' patterns
-       in (constructCase caseExpr patternExprs, m'')
+      let (m', caseExpr) = compileExpression m caseFexpr
+          (m'', patternExprs) = patternsToWasm m' patterns
+       in (m'', constructCase caseExpr patternExprs)
     T.Let declarations fexpr ->
       let compileDeclaration' (m', declarations) declaration =
             let (mExpr, m'') = compileInlineDeclaration m' declaration
@@ -200,13 +200,13 @@ compileExpression m fexpr =
                   Nothing -> (m'', declarations)
           (m', declarationExpressions) =
             foldl compileDeclaration' (m, []) declarations
-          (expr', m'') = compileExpression m' fexpr
-       in (Sequence $ NE.fromList (declarationExpressions <> [expr']), m'')
+          (m'', expr') = compileExpression m' fexpr
+       in (m'', Sequence $ NE.fromList (declarationExpressions <> [expr']))
     T.String' str ->
       let (Module _ address) = m
           m' = addTopLevel m [Data address str]
           m'' = allocateBytes m' (length str + 1)
-       in (Const address, m'')
+       in (m'', Const address)
   where
     constructCase ::
          Expression -> NE.NonEmpty (Expression, Expression) -> Expression
@@ -220,11 +220,11 @@ compileExpression m fexpr =
             (Just (constructCase caseExpr (NE.fromList xs)))
     patternsToWasm m patterns =
       let compilePattern (m', exprs) (a, b) =
-            let (aExpr, m'') = compileExpression m' a
-                (bExpr, m''') = compileExpression m'' b
+            let (m'', aExpr) = compileExpression m' a
+                (m''', bExpr) = compileExpression m'' b
              in (m''', exprs ++ [(aExpr, bExpr)])
           (m', exprs) = foldl compilePattern (m, []) patterns
-       in (NE.fromList exprs, m')
+       in (m', NE.fromList exprs)
 
 eq32 :: F.Ident
 eq32 = F.Ident . F.NonEmptyString $ NE.fromList "i32.eq"
