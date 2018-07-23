@@ -17,6 +17,7 @@ module Language
   , neToString
   ) where
 
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Generics.Deriving as G
 
@@ -32,7 +33,7 @@ data TopLevel
 data ADT =
   ADT Ident
       [Ident]
-      (NE.NonEmpty Constructor)
+      (NonEmpty Constructor)
   deriving (Show, Eq, G.Generic)
 
 data Declaration =
@@ -44,14 +45,13 @@ data Declaration =
 
 data Annotation =
   Annotation Ident
-             (NE.NonEmpty AnnotationType)
+             (NonEmpty AnnotationType)
   deriving (Show, Eq, G.Generic)
 
 data AnnotationType
   = Concrete Ident
-  | Parenthesized (NE.NonEmpty AnnotationType)
+  | Parenthesized (NonEmpty AnnotationType)
   deriving (Show, Eq, G.Generic)
-
 
 data Expression
   = Identifier Ident
@@ -59,10 +59,11 @@ data Expression
   | Infix OperatorExpr
           Expression
           Expression
-  | Apply Expression Expression
+  | Apply Expression
+          Expression
   | Case Expression
-         (NE.NonEmpty (Expression, Expression))
-  | Let (NE.NonEmpty Declaration)
+         (NonEmpty (Expression, Expression))
+  | Let (NonEmpty Declaration)
         Expression
   | BetweenParens Expression
   | String' String
@@ -86,7 +87,7 @@ newtype Ident =
   deriving (Show, Eq)
 
 newtype NonEmptyString =
-  NonEmptyString (NE.NonEmpty Char)
+  NonEmptyString (NonEmpty Char)
   deriving (Show, Eq)
 
 s :: Ident -> String

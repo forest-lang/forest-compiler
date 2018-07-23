@@ -40,7 +40,7 @@ data Type
            Type
   deriving (Eq, Show)
 
-data TypedModule =
+newtype TypedModule =
   TypedModule [TypedDeclaration]
 
 data TypedDeclaration =
