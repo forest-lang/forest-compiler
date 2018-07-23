@@ -15,13 +15,19 @@ main :: IO ()
 main = do
   args <- getArgs
   case args of
-    ["build", filename] -> build compile filename
+    ["build", filename] -> do
+      contents <- readFile filename
+      putStrLn $
+        case compile contents of
+          Success w -> w
+          ParseErr err -> reportParseError filename contents err
+          CompileErr errors -> unlines . toList $ printError <$> errors
     ["format", filename] -> build format filename
     ["check", filename] -> do
       contents <- readFile filename
       putStrLn $
         case check contents of
-          Success () -> "Compiled successfully"
+          Success _ -> "Compiled successfully"
           ParseErr err -> reportParseError filename contents err
           CompileErr errors -> unlines . toList $ printError <$> errors
     _ -> putStrLn "please provide a file to compile"

@@ -23,6 +23,9 @@ import Data.Text (Text)
 import qualified Generics.Deriving as G
 import Text.RawString.QQ
 
+import TypeChecker
+import qualified TypeChecker as T
+
 type BytesAllocated = Int
 
 data Module =
@@ -122,9 +125,9 @@ indent level str =
 indent2 :: String -> String
 indent2 = indent 2
 
-forestModuleToWasm :: F.Module -> Module
-forestModuleToWasm (F.Module topLevel) =
-  foldl compileTopLevel initModule topLevel
+forestModuleToWasm :: TypedModule -> Module
+forestModuleToWasm (TypedModule topLevel) =
+  foldl compileDeclaration initModule topLevel
   where
     initModule = Module [] 0
 
@@ -136,46 +139,60 @@ allocateBytes :: Module -> Int -> Module
 allocateBytes (Module topLevel bytes) extraBytes =
   Module topLevel (bytes + extraBytes)
 
-compileTopLevel :: Module -> F.TopLevel -> Module
-compileTopLevel m topLevel =
-  case topLevel of
-    F.Function declaration -> compileDeclaration m declaration
-    F.DataType _ -> m
-
-compileDeclaration :: Module -> F.Declaration -> Module
-compileDeclaration m (F.Declaration _ name args fexpr) =
+compileDeclaration :: Module -> TypedDeclaration -> Module
+compileDeclaration m (TypedDeclaration name args fexpr) =
   let (expr', m') = compileExpression m fexpr
-      func = Func $ Declaration name args expr'
+      func = Func $ Declaration name (fst <$> args) expr'
    in addTopLevel m' [func]
 
 compileInlineDeclaration ::
-     Module -> F.Declaration -> (Maybe Expression, Module)
-compileInlineDeclaration m (F.Declaration _ name args fexpr) =
+     Module -> TypedDeclaration -> (Maybe Expression, Module)
+compileInlineDeclaration m (TypedDeclaration name args fexpr) =
   let (expr', m') = compileExpression m fexpr
    in case args of
         [] -> (Just $ SetLocal name expr', m')
-        _ -> (Nothing, addTopLevel m' [Func $ Declaration name args expr'])
+        _ ->
+          ( Nothing
+          , addTopLevel m' [Func $ Declaration name (fst <$> args) expr'])
 
-compileExpression :: Module -> F.Expression -> (Expression, Module)
+compileExpressions ::
+     Module -> NonEmpty TypedExpression -> (Module, [Expression])
+compileExpressions m = foldl compile (m, [])
+  where
+    compile (m, xs) te =
+      let (e, m') = compileExpression m te
+       in (m', e : xs)
+
+compileExpression :: Module -> TypedExpression -> (Expression, Module)
 compileExpression m fexpr =
   case fexpr of
-    F.Identifier i -> (GetLocal i, m)
-    F.Number n -> (Const n, m)
-    F.BetweenParens fexpr -> compileExpression m fexpr
-    F.Infix operator a b ->
+    T.Identifier _ i -> (GetLocal i, m)
+    T.Number n -> (Const n, m)
+    T.BetweenParens fexpr -> compileExpression m fexpr
+    T.Infix _ operator a b ->
       let (aExpr, m') = compileExpression m a
           (bExpr, m'') = compileExpression m' b
           name = (F.Ident $ F.NonEmptyString $ NE.fromList "string_add")
        in case operator of
             F.StringAdd -> (NamedCall name [aExpr, bExpr], m'')
             _ -> (Call (funcForOperator operator) [aExpr, bExpr], m'')
-    F.Apply _ _ ->
-      undefined
-    F.Case caseFexpr patterns ->
+    T.Apply _ left right ->
+      case left of
+        T.Apply _ (T.Identifier _ name) r' ->
+          let (m', exprs) = compileExpressions m [right, r']
+           in (Sequence $ NE.fromList (exprs ++ [NamedCall name []]), m')
+        T.Identifier _ name ->
+          let (r, m') = compileExpression m right
+           in (NamedCall name [r], m')
+        _ -> error $ "do not know what to do with " ++ show left
+      -- say that left refers to a function declaration
+      -- and that right refers to a number
+      -- we want to generate a namedcall
+    T.Case _ caseFexpr patterns ->
       let (caseExpr, m') = compileExpression m caseFexpr
           (patternExprs, m'') = patternsToWasm m' patterns
        in (constructCase caseExpr patternExprs, m'')
-    F.Let declarations fexpr ->
+    T.Let declarations fexpr ->
       let compileDeclaration' (m', declarations) declaration =
             let (mExpr, m'') = compileInlineDeclaration m' declaration
              in case mExpr of
@@ -185,7 +202,7 @@ compileExpression m fexpr =
             foldl compileDeclaration' (m, []) declarations
           (expr', m'') = compileExpression m' fexpr
        in (Sequence $ NE.fromList (declarationExpressions <> [expr']), m'')
-    F.String' str ->
+    T.String' str ->
       let (Module _ address) = m
           m' = addTopLevel m [Data address str]
           m'' = allocateBytes m' (length str + 1)

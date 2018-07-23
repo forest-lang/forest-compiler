@@ -1,7 +1,10 @@
+main :: Int
 main =
   let
+    x :: Int
     x =
       5
+    y :: Int
     y =
       10
   in
