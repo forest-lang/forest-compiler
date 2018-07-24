@@ -51,6 +51,7 @@ data Annotation =
 data AnnotationType
   = Concrete Ident
   | Parenthesized (NonEmpty AnnotationType)
+  | TypeApplication AnnotationType AnnotationType
   deriving (Show, Eq, G.Generic)
 
 data Expression

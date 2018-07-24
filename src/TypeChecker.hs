@@ -245,6 +245,8 @@ inferDeclarationType (Declaration annotation _ _ _) =
       case t of
         Concrete i -> stringToType i
         Parenthesized types -> reduceTypes types
+        TypeApplication _ _ ->
+          error "lack information to infer type application"
     reduceTypes :: NE.NonEmpty AnnotationType -> Type
     reduceTypes types = collapseTypes (annotationTypeToType <$> types)
 
