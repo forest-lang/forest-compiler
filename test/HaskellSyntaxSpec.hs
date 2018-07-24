@@ -1,15 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleInstances #-}
-module HaskellSyntaxSpec (haskellSyntaxSpecs) where
+
+module HaskellSyntaxSpec
+  ( haskellSyntaxSpecs
+  ) where
 
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty
 import System.Exit
 import System.IO.Temp
 import System.Process
 import Test.Hspec
 import Test.QuickCheck
+import Text.Megaparsec
 
 import Arbitrary
 
@@ -35,12 +40,14 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Function $ Declaration
+              [ Function $
+                Declaration
                   Nothing
                   (ne "double")
                   [ne "a"]
                   (Infix Multiply (Identifier (ne "a")) (Number 2))
-              , Function $ Declaration
+              , Function $
+                Declaration
                   Nothing
                   (ne "half")
                   [ne "a"]
@@ -52,7 +59,8 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Function $ Declaration
+              [ Function $
+                Declaration
                   Nothing
                   (ne "test")
                   [ne "n"]
@@ -71,7 +79,8 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Function $ Declaration
+              [ Function $
+                Declaration
                   Nothing
                   (ne "test")
                   [ne "n"]
@@ -81,7 +90,8 @@ haskellSyntaxSpecs =
                      , (Number 1, Number 1)
                      , (Identifier (ne "n"), Identifier (ne "n"))
                      ])
-              , Function $ Declaration
+              , Function $
+                Declaration
                   Nothing
                   (ne "double")
                   [ne "x"]
@@ -93,7 +103,8 @@ haskellSyntaxSpecs =
       let parseResult = parseModule code
       let expected =
             Module
-              [ Function $ Declaration
+              [ Function $
+                Declaration
                   Nothing
                   (ne "a")
                   []
@@ -104,6 +115,25 @@ haskellSyntaxSpecs =
                         ])
                      (Infix Add (Identifier (ne "foo")) (Identifier (ne "bar"))))
               ]
+      parseResult `shouldBe` Right expected
+    it "parses type applications in annotations" $ do
+      let code = "foo :: Int -> Maybe Int"
+      let parseResult = parse annotation "" code
+      let expected =
+            Annotation (ne "foo") $
+            (Concrete (ne "Int")) :|
+            [TypeApplication (Concrete (ne "Maybe")) (Concrete (ne "Int"))]
+      parseResult `shouldBe` Right expected
+    it "parses complex type applications in annotations" $ do
+      let code = "foo :: Int -> Maybe (Int -> String)"
+      let parseResult = parse annotation "" code
+      let expected =
+            Annotation (ne "foo") $
+            (Concrete (ne "Int")) :|
+            [ TypeApplication
+                (Concrete (ne "Maybe"))
+                (Parenthesized (Concrete (ne "Int") :| [Concrete (ne "String")]))
+            ]
       parseResult `shouldBe` Right expected
 
 ne :: String -> Ident

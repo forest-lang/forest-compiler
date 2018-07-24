@@ -9,6 +9,7 @@ module HaskellSyntax
   , rws
   , s
   , expr
+  , annotation
   ) where
 
 import Language
@@ -187,24 +188,34 @@ declaration = do
   expression <- expr
   scn
   return $ Declaration annotation' name args expression
-  where
-    annotation = do
-      name <- pIdent
-      sc
-      _ <- symbol "::"
-      sc
-      types <- annotationTypes
-      return $ Annotation name types
-    annotationTypes :: Parser (NE.NonEmpty AnnotationType)
-    annotationTypes = do
-      firstType <- pType
-      types <- many (sc *> symbol "->" *> pType)
-      scn
-      return (NE.fromList $ firstType : types)
-    pType :: Parser AnnotationType
-    pType =
-      try $ parens' (Parenthesized <$> annotationTypes) <|>
-      (sc *> (Concrete <$> pIdent))
+
+annotation :: Parser Annotation
+annotation = do
+  name <- pIdent
+  sc
+  _ <- symbol "::"
+  sc
+  types <- annotationTypes
+  return $ Annotation name types
+
+annotationTypes :: Parser (NE.NonEmpty AnnotationType)
+annotationTypes = do
+  firstType <- pType
+  types <- many (sc *> symbol "->" *> pType)
+  scn
+  return (NE.fromList $ firstType : types)
+
+pType :: Parser AnnotationType
+pType = do
+  p <- maybeParse $ try $ parens' (Parenthesized <$> annotationTypes)
+  case p of
+    Just p' -> return p'
+    Nothing -> do
+      i <- sc *> (Concrete <$> pIdent)
+      e <- maybeParse (sc *> pType)
+      case e of
+        Just e' -> return $ TypeApplication i e'
+        Nothing -> return i
 
 maybeParse :: Parser a -> Parser (Maybe a)
 maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack
@@ -235,11 +246,11 @@ printDataType (ADT name generics constructors) =
     printConstructor (Constructor name' types) = unwords $ s <$> (name' : types)
 
 printDeclaration :: Declaration -> String
-printDeclaration (Declaration annotation name args expr') =
+printDeclaration (Declaration annotation' name args expr') =
   annotationAsString <> unwords ([s name] <> (s <$> args) <> ["="]) ++
   "\n" ++ indent2 (printExpression expr')
   where
-    annotationAsString = maybe "" printAnnotation annotation
+    annotationAsString = maybe "" printAnnotation annotation'
 
 printAnnotation :: Annotation -> String
 printAnnotation (Annotation name types) =
@@ -250,6 +261,7 @@ printAnnotation (Annotation name types) =
       case t of
         Concrete i -> s i
         Parenthesized types' -> "(" <> printTypes types' <> ")"
+        TypeApplication t' t'' -> printType t' <> " " <> printType t''
 
 printExpression :: Expression -> String
 printExpression expression =
