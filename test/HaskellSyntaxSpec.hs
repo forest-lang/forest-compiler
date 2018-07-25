@@ -33,8 +33,6 @@ propParseAndPrint m =
 haskellSyntaxSpecs :: SpecWith ()
 haskellSyntaxSpecs =
   describe "Forest haskell syntax" $ do
-    it "prints and reparses arbitrary expressions losslessly" $
-      withMaxSuccess 50 (property propParseAndPrint)
     it "parses a module with multple assignments" $ do
       code <- readFixture "multiple-assignments"
       let parseResult = parseModule code
@@ -121,7 +119,7 @@ haskellSyntaxSpecs =
       let parseResult = parse annotation "" code
       let expected =
             Annotation (ne "foo") $
-            (Concrete (ne "Int")) :|
+            Concrete (ne "Int") :|
             [TypeApplication (Concrete (ne "Maybe")) (Concrete (ne "Int"))]
       parseResult `shouldBe` Right expected
     it "parses complex type applications in annotations" $ do
@@ -135,6 +133,8 @@ haskellSyntaxSpecs =
                 (Parenthesized (Concrete (ne "Int") :| [Concrete (ne "String")]))
             ]
       parseResult `shouldBe` Right expected
+    it "prints and reparses arbitrary expressions losslessly" $
+      withMaxSuccess 75 (property propParseAndPrint)
 
 ne :: String -> Ident
 ne = Ident . NonEmptyString . NE.fromList

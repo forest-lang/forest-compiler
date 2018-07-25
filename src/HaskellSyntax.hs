@@ -10,6 +10,9 @@ module HaskellSyntax
   , s
   , expr
   , annotation
+  , operatorToString
+  , printDeclaration
+  , indent2
   ) where
 
 import Language
@@ -326,4 +329,3 @@ operatorToString op =
     Multiply -> "*"
     Divide -> "/"
     StringAdd -> "++"
---  DataType name constructors ->

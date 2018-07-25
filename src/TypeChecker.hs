@@ -8,6 +8,7 @@ module TypeChecker
   , TypedExpression(..)
   , typeOf
   , Type(..)
+  , InvalidConstruct(..)
   ) where
 
 import Data.Either
@@ -15,16 +16,24 @@ import Data.List (find, intercalate)
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty, toList)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (mapMaybe, maybeToList)
+import Data.Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Debug.Trace (trace)
 import qualified Generics.Deriving as G
 import Safe
 
+import HaskellSyntax
 import Language
 
-newtype CompileError =
-  CompileError String
+data CompileError =
+  CompileError InvalidConstruct
+               String
+  deriving (Eq, Show)
+
+data InvalidConstruct
+  = DeclarationError Declaration
+  | ExpressionError Expression
   deriving (Eq, Show)
 
 data CompileState = CompileState
@@ -131,10 +140,11 @@ checkDeclaration declarations declaration = do
   let typeChecks a =
         if typeOf a == expectedReturnType
           then Right $ TypedDeclaration name argsWithTypes a
-          else Left
-                 (CompileError $
-                  "Expected " ++
-                  show expectedReturnType ++ ", got " ++ show (typeOf a))
+          else Left $
+               CompileError
+                 (DeclarationError declaration)
+                 ("Expected " ++ s name ++ " to return type " ++
+                  printType expectedReturnType ++ ", but instead got type " ++ printType (typeOf a))
   actualReturnType >>= typeChecks
   where
     makeDeclaration (name, t) =
@@ -180,8 +190,8 @@ inferType declarations expr =
               makeIdentifier <$> inferDeclarationType declaration
             Nothing ->
               Left $
-              CompileError $
-              "not sure what \"" ++ idToString name ++ "\" refers to"
+              compileError
+                ("It's not clear what \"" ++ idToString name ++ "\" refers to")
     Language.Apply a b ->
       let typedExprs =
             (,) <$> inferType declarations a <*> inferType declarations b
@@ -191,11 +201,11 @@ inferType declarations expr =
                 if x == b'
                   then Right (TypeChecker.Apply r a b)
                   else Left $
-                       CompileError $
-                       "Expected " ++ show x ++ ", got " ++ show b'
+                       compileError
+                         ("Function expected argument of type " ++ printType x ++ ", but instead got argument of type " ++ printType b')
               _ ->
                 Left $
-                CompileError "tried to apply something that isn't a function"
+                compileError $ "Tried to apply a value of type " <> printType (typeOf a) <> " to a value of type " <> printType (typeOf b)
        in typedExprs >>= inferApplication
     Language.Infix op a b ->
       let expected =
@@ -206,7 +216,13 @@ inferType declarations expr =
           checkInfix (a, b) =
             if typeOf a == expected && typeOf b == expected
               then Right (TypeChecker.Infix expected op a b)
-              else Left $ CompileError "a bad infix happened"
+              else Left $
+                   compileError
+                     ("No function exists with type " <> printType (typeOf a) <>
+                      " " <>
+                      operatorToString op <>
+                      " " <>
+                      printType (typeOf b))
        in types >>= checkInfix
     Language.Case value branches -> do
       v <- inferType declarations value
@@ -226,40 +242,47 @@ inferType declarations expr =
                   Right
                     (TypeChecker.Case (typeOf . snd $ NE.head x) value types)
                 _ ->
-                  Left . CompileError $
-                  "Case statement had multiple return types: " ++
-                  intercalate ", " (show <$> NE.toList (typeOf . snd <$> types))
+                  Left $
+                  compileError
+                    ("Case expression has multiple return types: " ++
+                     intercalate
+                       ", "
+                       (printType <$> NE.toList (typeOf . snd <$> types)))
     Language.Let declarations' value ->
       let ds = NE.toList declarations' ++ declarations
           branchTypes = sequence (checkDeclaration ds <$> declarations')
        in TypeChecker.Let <$> branchTypes <*> inferType ds value
   where
     m name (Declaration _ name' _ _) = name == name'
+    compileError = CompileError $ ExpressionError expr
 
 inferDeclarationType :: Declaration -> Either CompileError (NE.NonEmpty Type)
-inferDeclarationType (Declaration annotation _ _ _) =
+inferDeclarationType declaration =
   case annotation of
     Just (Annotation _ types) -> sequence $ annotationTypeToType <$> types
-    Nothing -> Left $ CompileError "currently need annotations"
+    Nothing -> Left $ compileError "For now, annotations are required."
   where
+    (Declaration annotation _ _ _) = declaration
+    compileError = CompileError $ DeclarationError declaration
     annotationTypeToType t =
       case t of
-        Concrete i -> stringToType i
+        Concrete i -> stringToType i compileError
         Parenthesized types -> reduceTypes types
         TypeApplication _ _ ->
           error "lack information to infer type application"
     reduceTypes :: NE.NonEmpty AnnotationType -> Either CompileError Type
-    reduceTypes types = collapseTypes <$> sequence (annotationTypeToType <$> types)
+    reduceTypes types =
+      collapseTypes <$> sequence (annotationTypeToType <$> types)
 
 collapseTypes :: NE.NonEmpty Type -> Type
 collapseTypes = foldr1 Lambda
 
-stringToType :: Ident -> Either CompileError Type
-stringToType ident =
+stringToType :: Ident -> (String -> CompileError) -> Either CompileError Type
+stringToType ident err =
   case idToString ident of
     "String" -> Right Str
     "Int" -> Right Num
-    s -> Left $ CompileError $ "don't know about type " ++ show s
+    s -> Left $ err ("don't know about type " ++ show s)
 
 printType :: Type -> String
 printType t =
