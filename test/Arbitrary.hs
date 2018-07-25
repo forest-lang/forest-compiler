@@ -179,9 +179,27 @@ genInfix = do
 
 genCall :: Gen Expression
 genCall = do
-  name <- genIdentifier
-  args <- oneof [genIdentifier, genNumber, BetweenParens <$> genExpression]
-  return $ Apply name args
+  a <-
+    oneof
+      [ genIdentifier
+      , genNumber
+      , genString
+      , genCall
+      , BetweenParens <$> genExpression
+      ]
+  b <-
+    oneof
+      [ genIdentifier
+      , genNumber
+      , genString
+      , BetweenParens <$> suchThat genExpression excludingApply
+      ]
+  return $ Apply a b
+  where
+    excludingApply e =
+      case e of
+        Apply _ _ -> False
+        _ -> True
 
 (>*<) :: Gen a -> Gen b -> Gen (a, b)
 x >*< y = liftM2 (,) x y

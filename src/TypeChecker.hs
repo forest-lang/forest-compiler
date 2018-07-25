@@ -120,32 +120,33 @@ checkTopLevel state topLevel =
 
 checkDeclaration ::
      [Declaration] -> Declaration -> Either CompileError TypedDeclaration
-checkDeclaration declarations declaration =
+checkDeclaration declarations declaration = do
   let (Declaration _ name args expr) = declaration
-      annotationTypes = inferDeclarationType declaration
-      argsWithTypes = zip args (NE.toList annotationTypes)
-      locals = makeDeclaration <$> argsWithTypes
-      expectedReturnType =
+  annotationTypes <- inferDeclarationType declaration
+  let argsWithTypes = zip args (NE.toList annotationTypes)
+  let locals = makeDeclaration <$> argsWithTypes
+  let expectedReturnType =
         collapseTypes (NE.fromList (NE.drop (length args) annotationTypes)) -- TODO remove NE.fromList
-      actualReturnType = inferType (locals ++ declarations) expr
-      makeDeclaration (name, t) =
-        Declaration
-          (Just (Annotation name (annotationType t :| [])))
-          name
-          []
-          (Language.Number 0)
-      annotationType t =
-        case t of
-          Lambda a b -> Parenthesized (annotationType a :| [annotationType b])
-          n -> Concrete (Ident $ NonEmptyString $ NE.fromList (printType n))
-      typeChecks a =
+  let actualReturnType = inferType (locals ++ declarations) expr
+  let typeChecks a =
         if typeOf a == expectedReturnType
           then Right $ TypedDeclaration name argsWithTypes a
           else Left
                  (CompileError $
                   "Expected " ++
                   show expectedReturnType ++ ", got " ++ show (typeOf a))
-   in actualReturnType >>= typeChecks
+  actualReturnType >>= typeChecks
+  where
+    makeDeclaration (name, t) =
+      Declaration
+        (Just (Annotation name (annotationType t :| [])))
+        name
+        []
+        (Language.Number 0)
+    annotationType t =
+      case t of
+        Lambda a b -> Parenthesized (annotationType a :| [annotationType b])
+        n -> Concrete (Ident $ NonEmptyString $ NE.fromList (printType n))
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -172,15 +173,15 @@ inferType declarations expr =
     Language.String' s -> Right $ TypeChecker.String' s
     Language.BetweenParens expr -> inferType declarations expr
     Language.Identifier name ->
-      case find (m name) declarations of
-        Just declaration ->
-          Right $
-          TypeChecker.Identifier
-            (collapseTypes . inferDeclarationType $ declaration)
-            name
-        Nothing ->
-          Left $
-          CompileError $ "not sure what \"" ++ idToString name ++ "\" refers to"
+      let makeIdentifier types =
+            TypeChecker.Identifier (collapseTypes types) name
+       in case find (m name) declarations of
+            Just declaration ->
+              makeIdentifier <$> inferDeclarationType declaration
+            Nothing ->
+              Left $
+              CompileError $
+              "not sure what \"" ++ idToString name ++ "\" refers to"
     Language.Apply a b ->
       let typedExprs =
             (,) <$> inferType declarations a <*> inferType declarations b
@@ -235,11 +236,11 @@ inferType declarations expr =
   where
     m name (Declaration _ name' _ _) = name == name'
 
-inferDeclarationType :: Declaration -> NE.NonEmpty Type
+inferDeclarationType :: Declaration -> Either CompileError (NE.NonEmpty Type)
 inferDeclarationType (Declaration annotation _ _ _) =
   case annotation of
-    Just (Annotation _ types) -> annotationTypeToType <$> types
-    Nothing -> error "currently need annotations"
+    Just (Annotation _ types) -> sequence $ annotationTypeToType <$> types
+    Nothing -> Left $ CompileError "currently need annotations"
   where
     annotationTypeToType t =
       case t of
@@ -247,18 +248,18 @@ inferDeclarationType (Declaration annotation _ _ _) =
         Parenthesized types -> reduceTypes types
         TypeApplication _ _ ->
           error "lack information to infer type application"
-    reduceTypes :: NE.NonEmpty AnnotationType -> Type
-    reduceTypes types = collapseTypes (annotationTypeToType <$> types)
+    reduceTypes :: NE.NonEmpty AnnotationType -> Either CompileError Type
+    reduceTypes types = collapseTypes <$> sequence (annotationTypeToType <$> types)
 
 collapseTypes :: NE.NonEmpty Type -> Type
 collapseTypes = foldr1 Lambda
 
-stringToType :: Ident -> Type
+stringToType :: Ident -> Either CompileError Type
 stringToType ident =
   case idToString ident of
-    "String" -> Str
-    "Int" -> Num
-    s -> error $ "don't know about type " ++ show s
+    "String" -> Right Str
+    "Int" -> Right Num
+    s -> Left $ CompileError $ "don't know about type " ++ show s
 
 printType :: Type -> String
 printType t =
