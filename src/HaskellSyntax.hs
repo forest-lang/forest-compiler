@@ -53,7 +53,7 @@ expr :: Parser Expression
 expr = makeExprParser term table <?> "expression"
 
 term :: Parser Expression
-term = sc *> (try pCase <|> try pLet <|> parens <|> call <|> number <|> pString)
+term = sc *> (try pCase <|> try pLet <|> call <|> parens <|> number <|> pString)
 
 termWithoutCall :: Parser Expression
 termWithoutCall =
@@ -136,12 +136,12 @@ pLet = do
 
 call :: Parser Expression
 call = do
-  name <- pIdent
+  name <- exprWithoutCall
   args <- many (try exprWithoutCall)
   return $
     case args of
-      [] -> Identifier name
-      (x:xs) -> apply (Identifier name) x (reverse xs)
+      [] -> name
+      (x:xs) -> apply name x (reverse xs)
   where
     apply left right remainder =
       case remainder of

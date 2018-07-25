@@ -8,7 +8,7 @@ module Compiler
   ) where
 
 import HaskellSyntax
-import WASM
+import Wasm
 import TypeChecker
 import Data.List.NonEmpty (NonEmpty)
 

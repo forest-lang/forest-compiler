@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-module WASM
+module Wasm
   ( Expression(..)
   , Module(..)
   , printWasm

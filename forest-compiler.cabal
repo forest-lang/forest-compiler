@@ -17,7 +17,7 @@ library
   ghc-options:       -Werror -Wunused-matches -Wunused-local-binds -Wmissing-signatures -Wincomplete-patterns -Wincomplete-uni-patterns -Wincomplete-record-updates
   hs-source-dirs:      src
   exposed-modules:     HaskellSyntax
-                     , WASM
+                     , Wasm
                      , Compiler
                      , Language
                      , TypeChecker
@@ -47,6 +47,7 @@ test-suite forest-compiler-test
   main-is:             Spec.hs
   other-modules:       HaskellSyntaxSpec
                      , TypeCheckerSpec
+                     , WasmSpec
                      , Arbitrary
   build-depends:       base
                      , forest-compiler
