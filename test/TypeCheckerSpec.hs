@@ -9,6 +9,7 @@ module TypeCheckerSpec
 
 import Data.Either
 import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import System.Exit
 import System.IO.Temp
 import System.Process
@@ -127,13 +128,21 @@ main =
 
 unorderedDeclarations :: String
 unorderedDeclarations =
- [r|
+  [r|
 main :: Int
 main = foo
 
 foo :: Int
 foo = 5
 |]
+
+messages :: Either (NonEmpty CompileError) () -> [String]
+messages r =
+  case r of
+    Right () -> []
+    Left errors -> NE.toList $ m <$> errors
+  where
+    m (CompileError _ message) = message
 
 typeCheckerSpecs :: SpecWith ()
 typeCheckerSpecs =
@@ -143,94 +152,73 @@ typeCheckerSpecs =
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
        in checkResult `shouldBe` Right ()
     it "checks valid expressions that use locals" $
       let moduleResult = parseModule local
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
        in checkResult `shouldBe` Right ()
     it "checks invalid expressions" $
       let moduleResult = parseModule invalid
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
-       in checkResult `shouldBe`
-          Left (CompileError "Expected Num, got Str" :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
+       in messages checkResult `shouldBe`
+          [ "Function expected argument of type Int, but instead got argument of type String"
+          ]
     it "fails if a function has an incorrect return type" $
       let moduleResult = parseModule wrongReturnType
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
-       in checkResult `shouldBe`
-          Left (CompileError "Expected Num, got Str" :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
+       in messages checkResult `shouldBe`
+          ["Expected foo to return type Int, but instead got type String"]
     it "fails if a case has branches that return different types" $
       let moduleResult = parseModule badCase
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
-       in checkResult `shouldBe`
-          Left
-            (CompileError "Case statement had multiple return types: Str, Num" :|
-             [])
+              Left err -> error $ "Failed to parse module: " ++ show err
+       in messages checkResult `shouldBe`
+          ["Case expression has multiple return types: String, Int"]
     it "passes with a valid case" $
       let moduleResult = parseModule goodCase
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
        in checkResult `shouldBe` Right ()
     it "fails if a let has incorrect types" $
       let moduleResult = parseModule badLet
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
-       in checkResult `shouldBe`
-          Left (CompileError "a bad infix happened" :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
+       in messages checkResult `shouldBe`
+          ["No function exists with type Int + String"]
     it "passes with a valid let" $
       let moduleResult = parseModule goodLet
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
        in checkResult `shouldBe` Right ()
     it "passes with a valid let that uses functions" $
       let moduleResult = parseModule goodFunctionLet
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
        in checkResult `shouldBe` Right ()
     it "is insensitive to the order of declarations" $
       let moduleResult = parseModule unorderedDeclarations
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
-              Left err ->
-                Left
-                  (CompileError ("Failed to parse module: " ++ show err) :| [])
+              Left err -> error $ "Failed to parse module: " ++ show err
        in checkResult `shouldBe` Right ()
