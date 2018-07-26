@@ -173,8 +173,8 @@ genOperator = elements [Add, Subtract, Multiply, Divide]
 genInfix :: Gen Expression
 genInfix = do
   operator <- genOperator
-  a <- genNumber
-  b <- genExpression
+  a <- genNumber -- TODO expand this definition
+  b <- suchThat genExpression excludingApply
   return $ BetweenParens $ Infix operator a b
 
 genCall :: Gen Expression
@@ -195,11 +195,12 @@ genCall = do
       , BetweenParens <$> suchThat genExpression excludingApply
       ]
   return $ Apply a b
-  where
-    excludingApply e =
-      case e of
-        Apply _ _ -> False
-        _ -> True
+
+excludingApply :: Expression -> Bool
+excludingApply e =
+  case e of
+    Apply _ _ -> False
+    _ -> True
 
 (>*<) :: Gen a -> Gen b -> Gen (a, b)
 x >*< y = liftM2 (,) x y
