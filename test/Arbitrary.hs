@@ -10,6 +10,9 @@ import Language
 
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
+import Data.Semigroup
+import Data.Text (Text)
+import qualified Data.Text as T
 import Test.QuickCheck
 import Test.QuickCheck.Arbitrary
 
@@ -53,12 +56,17 @@ instance Arbitrary Ident where
   arbitrary = genIdent
   shrink (Ident s) = Ident <$> filter permittedWord (shrink s)
 
+instance Arbitrary Text where
+  arbitrary = T.pack <$> arbitrary
+  shrink s = T.pack <$> shrink (T.unpack s)
+
 permittedWord :: NonEmptyString -> Bool
-permittedWord (NonEmptyString s) = NE.toList s `notElem` rws
+permittedWord (NonEmptyString x xs) = T.singleton x <> xs `notElem` rws
 
 instance Arbitrary NonEmptyString where
   arbitrary = genNEString
-  shrink (NonEmptyString s) = NonEmptyString <$> shrinkNonEmpty s
+  shrink (NonEmptyString x xs) =
+    NonEmptyString x <$> (T.pack <$> shrink (T.unpack xs))
 
 instance Arbitrary (NE.NonEmpty Declaration) where
   arbitrary = genNonEmpty genDeclaration
@@ -113,7 +121,7 @@ genIdent :: Gen Ident
 genIdent = Ident <$> suchThat genNEString permittedWord
 
 genNEString :: Gen NonEmptyString
-genNEString = NonEmptyString . NE.fromList <$> listOf1 genChar
+genNEString = NonEmptyString <$> genChar <*> (T.pack <$> listOf1 genChar)
 
 genIdentifier :: Gen Expression
 genIdentifier = Identifier <$> genIdent
@@ -122,7 +130,7 @@ genNumber :: Gen Expression
 genNumber = Number <$> arbitrarySizedNatural
 
 genString :: Gen Expression
-genString = String' <$> listOf genChar
+genString = String' . T.pack <$> listOf genChar
 
 genTopLevel :: Gen TopLevel
 genTopLevel = oneof [genFunction, genDataType]

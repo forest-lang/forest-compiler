@@ -19,6 +19,9 @@ module Language
 
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
+import Data.Semigroup ((<>))
+import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Generics.Deriving as G
 
 newtype Module =
@@ -51,7 +54,8 @@ data Annotation =
 data AnnotationType
   = Concrete Ident
   | Parenthesized (NonEmpty AnnotationType)
-  | TypeApplication AnnotationType AnnotationType
+  | TypeApplication AnnotationType
+                    AnnotationType
   deriving (Show, Eq, G.Generic)
 
 data Expression
@@ -67,7 +71,7 @@ data Expression
   | Let (NonEmpty Declaration)
         Expression
   | BetweenParens Expression
-  | String' String
+  | String' Text
   deriving (Show, Eq, G.Generic)
 
 data Constructor =
@@ -87,15 +91,16 @@ newtype Ident =
   Ident NonEmptyString
   deriving (Show, Eq)
 
-newtype NonEmptyString =
-  NonEmptyString (NonEmpty Char)
+data NonEmptyString =
+  NonEmptyString Char
+                 Text
   deriving (Show, Eq)
 
-s :: Ident -> String
+s :: Ident -> Text
 s = idToString
 
-idToString :: Ident -> String
+idToString :: Ident -> Text
 idToString (Ident str) = neToString str
 
-neToString :: NonEmptyString -> String
-neToString (NonEmptyString se) = NE.toList se
+neToString :: NonEmptyString -> Text
+neToString (NonEmptyString c t) = T.singleton c <> t
