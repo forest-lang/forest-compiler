@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module TypeChecker
   ( checkModule
@@ -19,6 +20,8 @@ import Data.Maybe (mapMaybe, maybeToList)
 import Data.Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Text (Text)
+import qualified Data.Text as T
 import Debug.Trace (trace)
 import qualified Generics.Deriving as G
 import Safe
@@ -26,9 +29,12 @@ import Safe
 import HaskellSyntax
 import Language
 
+showT :: Show a => a -> Text
+showT = T.pack . show
+
 data CompileError =
   CompileError InvalidConstruct
-               String
+               Text
   deriving (Eq, Show)
 
 data InvalidConstruct
@@ -75,7 +81,7 @@ data TypedExpression
   | Let (NE.NonEmpty TypedDeclaration)
         TypedExpression
   | BetweenParens TypedExpression
-  | String' String
+  | String' Text
   deriving (Show, Eq, G.Generic)
 
 addDeclaration ::
@@ -136,15 +142,18 @@ checkDeclaration declarations declaration = do
   let locals = makeDeclaration <$> argsWithTypes
   let expectedReturnType =
         collapseTypes (NE.fromList (NE.drop (length args) annotationTypes)) -- TODO remove NE.fromList
-  let actualReturnType = inferType (locals ++ declarations) expr
+  let actualReturnType = inferType (locals <> declarations) expr
   let typeChecks a =
         if typeOf a == expectedReturnType
           then Right $ TypedDeclaration name argsWithTypes a
           else Left $
                CompileError
                  (DeclarationError declaration)
-                 ("Expected " ++ s name ++ " to return type " ++
-                  printType expectedReturnType ++ ", but instead got type " ++ printType (typeOf a))
+                 ("Expected " <>
+                  s name <>
+                  " to return type " <>
+                  printType expectedReturnType <>
+                  ", but instead got type " <> printType (typeOf a))
   actualReturnType >>= typeChecks
   where
     makeDeclaration (name, t) =
@@ -156,7 +165,7 @@ checkDeclaration declarations declaration = do
     annotationType t =
       case t of
         Lambda a b -> Parenthesized (annotationType a :| [annotationType b])
-        n -> Concrete (Ident $ NonEmptyString $ NE.fromList (printType n))
+        n -> Concrete (Ident $ NonEmptyString (T.head $ printType n) (T.tail $ printType n))
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -191,7 +200,7 @@ inferType declarations expr =
             Nothing ->
               Left $
               compileError
-                ("It's not clear what \"" ++ idToString name ++ "\" refers to")
+                ("It's not clear what \"" <> idToString name <> "\" refers to")
     Language.Apply a b ->
       let typedExprs =
             (,) <$> inferType declarations a <*> inferType declarations b
@@ -202,10 +211,15 @@ inferType declarations expr =
                   then Right (TypeChecker.Apply r a b)
                   else Left $
                        compileError
-                         ("Function expected argument of type " ++ printType x ++ ", but instead got argument of type " ++ printType b')
+                         ("Function expected argument of type " <>
+                          printType x <>
+                          ", but instead got argument of type " <> printType b')
               _ ->
                 Left $
-                compileError $ "Tried to apply a value of type " <> printType (typeOf a) <> " to a value of type " <> printType (typeOf b)
+                compileError $
+                "Tried to apply a value of type " <> printType (typeOf a) <>
+                " to a value of type " <>
+                printType (typeOf b)
        in typedExprs >>= inferApplication
     Language.Infix op a b ->
       let expected =
@@ -244,12 +258,12 @@ inferType declarations expr =
                 _ ->
                   Left $
                   compileError
-                    ("Case expression has multiple return types: " ++
-                     intercalate
+                    ("Case expression has multiple return types: " <>
+                     T.intercalate
                        ", "
                        (printType <$> NE.toList (typeOf . snd <$> types)))
     Language.Let declarations' value ->
-      let ds = NE.toList declarations' ++ declarations
+      let ds = NE.toList declarations' <> declarations
           branchTypes = sequence (checkDeclaration ds <$> declarations')
        in TypeChecker.Let <$> branchTypes <*> inferType ds value
   where
@@ -277,19 +291,19 @@ inferDeclarationType declaration =
 collapseTypes :: NE.NonEmpty Type -> Type
 collapseTypes = foldr1 Lambda
 
-stringToType :: Ident -> (String -> CompileError) -> Either CompileError Type
+stringToType :: Ident -> (Text -> CompileError) -> Either CompileError Type
 stringToType ident err =
   case idToString ident of
     "String" -> Right Str
     "Int" -> Right Num
-    s -> Left $ err ("don't know about type " ++ show s)
+    s -> Left $ err ("don't know about type " <> showT s)
 
-printType :: Type -> String
+printType :: Type -> Text
 printType t =
   case t of
     Str -> "String"
     Num -> "Int"
-    Lambda a r -> printType a ++ " -> " ++ printType r
+    Lambda a r -> printType a <> " -> " <> printType r
 
-printSignature :: [Type] -> String
-printSignature types = intercalate " -> " (printType <$> types)
+printSignature :: [Type] -> Text
+printSignature types = T.intercalate " -> " (printType <$> types)

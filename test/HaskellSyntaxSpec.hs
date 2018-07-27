@@ -9,6 +9,10 @@ module HaskellSyntaxSpec
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty
+import Data.Semigroup
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import System.Exit
 import System.IO.Temp
 import System.Process
@@ -127,7 +131,7 @@ haskellSyntaxSpecs =
       let parseResult = parse annotation "" code
       let expected =
             Annotation (ne "foo") $
-            (Concrete (ne "Int")) :|
+            Concrete (ne "Int") :|
             [ TypeApplication
                 (Concrete (ne "Maybe"))
                 (Parenthesized (Concrete (ne "Int") :| [Concrete (ne "String")]))
@@ -136,8 +140,8 @@ haskellSyntaxSpecs =
     it "prints and reparses arbitrary expressions losslessly" $
       withMaxSuccess 75 (property propParseAndPrint)
 
-ne :: String -> Ident
-ne = Ident . NonEmptyString . NE.fromList
+ne :: Text -> Ident
+ne s = Ident $ NonEmptyString (T.head s) (T.tail s)
 
-readFixture :: String -> IO String
-readFixture name = readFile ("test/fixtures/" ++ name ++ ".tree")
+readFixture :: Text -> IO Text
+readFixture name = TIO.readFile ("test/fixtures/" <> T.unpack name <> ".tree")

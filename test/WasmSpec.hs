@@ -1,4 +1,3 @@
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -9,6 +8,8 @@ module WasmSpec
 
 import Data.Either
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Text (Text)
+import qualified Data.Text as T
 import System.Exit
 import System.IO.Temp
 import System.Process
@@ -30,10 +31,13 @@ propCodeThatTypeChecksShouldCompile m =
       case m of
         Language.Module [] -> True
         _ ->
-          (sum $ length <$> (lines $ printWasm $ forestModuleToWasm typedModule)) > 1
+          sum
+            (T.length <$> T.lines (printWasm $ forestModuleToWasm typedModule)) >
+          1
     Left _ -> True
 
 wasmSpecs :: SpecWith ()
 wasmSpecs =
-  describe "wasm code generation" $ do
-    it "checks valid expressions" $ withMaxSuccess 50000 (property propCodeThatTypeChecksShouldCompile)
+  describe "wasm code generation" $
+  it "checks valid expressions" $
+  withMaxSuccess 50000 (property propCodeThatTypeChecksShouldCompile)

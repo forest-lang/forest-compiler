@@ -7,10 +7,12 @@ module Compiler
   , Result(..)
   ) where
 
+import Data.Text (Text)
+import Data.List.NonEmpty (NonEmpty)
+
 import HaskellSyntax
 import Wasm
 import TypeChecker
-import Data.List.NonEmpty (NonEmpty)
 
 data Result a
   = Success a
@@ -18,7 +20,7 @@ data Result a
   | CompileErr (NonEmpty CompileError)
   deriving (Functor)
 
-check :: String -> Result TypedModule
+check :: Text -> Result TypedModule
 check s =
   case parseModule s of
     Left err -> ParseErr err
@@ -27,8 +29,8 @@ check s =
         Left err' -> CompileErr err'
         Right m -> Success m
 
-compile :: String -> Result String
+compile :: Text -> Result Text
 compile s = printWasm . forestModuleToWasm <$> check s
 
-format :: String -> Either ParseError' String
+format :: Text -> Either ParseError' Text
 format s = printModule <$> parseModule s

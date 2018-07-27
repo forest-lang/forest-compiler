@@ -20,6 +20,7 @@ import Data.List.NonEmpty (NonEmpty((:|)))
 import Data.Maybe
 import Data.Semigroup ((<>))
 import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Generics.Deriving as G
 import Text.RawString.QQ
 
@@ -41,7 +42,7 @@ data Declaration =
 data TopLevel
   = Func Declaration
   | Data Int
-         String
+         Text
 
 data Expression
   = Const Int
@@ -58,13 +59,16 @@ data Expression
   | Sequence (NE.NonEmpty Expression)
   deriving (Show, Eq)
 
+showT :: Show a => a -> Text
+showT = Text.pack . show
+
 -- TODO - malloc could probably be better
-prelude :: BytesAllocated -> String
+prelude :: BytesAllocated -> Text
 prelude bytesAllocated =
   let freeBlock =
-        ("(global $freeblock (mut i32) (i32.const " ++
-         show bytesAllocated ++ "))\n\n")
-   in freeBlock ++
+        ("(global $freeblock (mut i32) (i32.const " <> showT bytesAllocated <>
+         "))\n\n")
+   in freeBlock <>
       [r|
 
 (export "malloc" (func $malloc))
@@ -118,11 +122,12 @@ prelude bytesAllocated =
 )
 |]
 
-indent :: Int -> String -> String
+indent :: Int -> Text -> Text
 indent level str =
-  intercalate "\n" $ map (\line -> replicate level ' ' ++ line) (lines str)
+  Text.intercalate "\n" $
+  fmap (\line -> Text.replicate level " " <> line) (Text.lines str)
 
-indent2 :: String -> String
+indent2 :: Text -> Text
 indent2 = indent 2
 
 forestModuleToWasm :: TypedModule -> Module
@@ -133,7 +138,7 @@ forestModuleToWasm (TypedModule topLevel) =
 
 addTopLevel :: Module -> [TopLevel] -> Module
 addTopLevel (Module topLevel bytes) newTopLevel =
-  Module (topLevel ++ newTopLevel) bytes
+  Module (topLevel <> newTopLevel) bytes
 
 allocateBytes :: Module -> Int -> Module
 allocateBytes (Module topLevel bytes) extraBytes =
@@ -172,7 +177,7 @@ compileExpression m fexpr =
     T.Infix _ operator a b ->
       let (m', aExpr) = compileExpression m a
           (m'', bExpr) = compileExpression m' b
-          name = (F.Ident $ F.NonEmptyString $ NE.fromList "string_add")
+          name = (F.Ident $ F.NonEmptyString 's' "tring_add")
        in case operator of
             F.StringAdd -> (m'', NamedCall name [aExpr, bExpr])
             _ -> (m'', Call (funcForOperator operator) [aExpr, bExpr])
@@ -180,11 +185,11 @@ compileExpression m fexpr =
       case left of
         T.Apply _ (T.Identifier _ name) r' ->
           let (m', exprs) = compileExpressions m [right, r']
-           in (m', Sequence $ NE.fromList (exprs ++ [NamedCall name []]))
+           in (m', Sequence $ NE.fromList (exprs <> [NamedCall name []]))
         T.Identifier _ name ->
           let (m', r) = compileExpression m right
            in (m', NamedCall name [r])
-        _ -> error $ "do not know what to do with " ++ show left
+        _ -> error $ "do not know what to do with " <> show left
       -- say that left refers to a function declaration
       -- and that right refers to a number
       -- we want to generate a namedcall
@@ -193,10 +198,14 @@ compileExpression m fexpr =
           (m'', patternExprs) = patternsToWasm m' patterns
        in (m'', constructCase caseExpr patternExprs)
     T.Let declarations fexpr ->
-      let compileDeclaration' (m', declarations) declaration =
+      let compileDeclaration' ::
+               (Module, [Expression])
+            -> TypedDeclaration
+            -> (Module, [Expression])
+          compileDeclaration' (m', declarations) declaration =
             let (mExpr, m'') = compileInlineDeclaration m' declaration
              in case mExpr of
-                  Just expr -> (m'', declarations ++ [expr])
+                  Just expr -> (m'', declarations <> [expr])
                   Nothing -> (m'', declarations)
           (m', declarationExpressions) =
             foldl compileDeclaration' (m, []) declarations
@@ -205,7 +214,7 @@ compileExpression m fexpr =
     T.String' str ->
       let (Module _ address) = m
           m' = addTopLevel m [Data address str]
-          m'' = allocateBytes m' (length str + 1)
+          m'' = allocateBytes m' (Text.length str + 1)
        in (m'', Const address)
   where
     constructCase ::
@@ -218,101 +227,111 @@ compileExpression m fexpr =
             (Call eq32 [caseExpr, fst x])
             (snd x)
             (Just (constructCase caseExpr (NE.fromList xs)))
+    patternsToWasm ::
+         Module
+      -> NE.NonEmpty (T.TypedExpression, T.TypedExpression)
+      -> (Module, NonEmpty (Expression, Expression))
     patternsToWasm m patterns =
-      let compilePattern (m', exprs) (a, b) =
+      let compilePattern ::
+               (Module, [(Expression, Expression)])
+            -> (T.TypedExpression, T.TypedExpression)
+            -> (Module, [(Expression, Expression)])
+          compilePattern (m', exprs) (a, b) =
             let (m'', aExpr) = compileExpression m' a
                 (m''', bExpr) = compileExpression m'' b
-             in (m''', exprs ++ [(aExpr, bExpr)])
+             in (m''', exprs <> [(aExpr, bExpr)])
           (m', exprs) = foldl compilePattern (m, []) patterns
        in (m', NE.fromList exprs)
 
 eq32 :: F.Ident
-eq32 = F.Ident . F.NonEmptyString $ NE.fromList "i32.eq"
+eq32 = F.Ident $ F.NonEmptyString 'i' "32.eq"
 
 funcForOperator :: F.OperatorExpr -> F.Ident
 funcForOperator operator =
-  F.Ident . F.NonEmptyString $
-  NE.fromList $
+  F.Ident . uncurry F.NonEmptyString $
   case operator of
-    F.Add -> "i32.add"
-    F.Subtract -> "i32.sub"
-    F.Multiply -> "i32.mul"
-    F.Divide -> "i32.div_s"
-    F.StringAdd -> "string_add"
+    F.Add -> ('i', "32.add")
+    F.Subtract -> ('i', "32.sub")
+    F.Multiply -> ('i', "32.mul")
+    F.Divide -> ('i', "32.div_s")
+    F.StringAdd -> ('s', "tring_add")
 
-printWasm :: Module -> String
+printWasm :: Module -> Text
 printWasm (Module expressions bytesAllocated) =
-  "(module\n" ++
-  indent2 (prelude bytesAllocated) ++
-  "\n\n" ++
-  indent2 (printMemory bytesAllocated) ++
-  "\n" ++
-  indent2 (intercalate "\n" $ printWasmTopLevel <$> expressions) ++ "\n)"
+  "(module\n" <> indent2 (prelude bytesAllocated) <> "\n\n" <>
+  indent2 (printMemory bytesAllocated) <>
+  "\n" <>
+  indent2 (Text.intercalate "\n" $ printWasmTopLevel <$> expressions) <>
+  "\n)"
 
-printMemory :: BytesAllocated -> String
+printMemory :: BytesAllocated -> Text
 printMemory bytes =
   case bytes of
     0 -> printMemory 1 -- TODO this is silly, we should omit the prelude instead
     _ ->
-      "(memory $memory " ++
-      show pages ++ ")\n(export \"memory\" (memory $memory))\n\n"
+      "(memory $memory " <> showT pages <>
+      ")\n(export \"memory\" (memory $memory))\n\n"
   where
     pageSize = 2 ** 16
     pages = ceiling $ fromIntegral bytes / pageSize
 
-printWasmTopLevel :: TopLevel -> String
+printWasmTopLevel :: TopLevel -> Text
 printWasmTopLevel topLevel =
   case topLevel of
     Func (Declaration name args body) ->
-      unlines
-        [ "(export \"" ++ F.s name ++ "\" (func $" ++ F.s name ++ "))"
+      Text.unlines
+        [ "(export \"" <> F.s name <> "\" (func $" <> F.s name <> "))"
         , printDeclaration (Declaration name args body)
         ]
     Data offset str ->
-      "(data (i32.const " ++
-      show offset ++ ") \"" ++ escape (length str + 1) ++ str ++ "\")"
+      "(data (i32.const " <> showT offset <> ") \"" <>
+      escape (Text.length str + 1) <>
+      str <>
+      "\")"
   where
     escape n =
       case n of
-        0 -> "\\" ++ [chr 0]
+        0 -> "\\" <> Text.singleton (chr 0)
         34 -> "\\\""
-        _ -> [chr n]
+        _ -> Text.singleton (chr n)
 
-printWasmExpr :: Expression -> String
+printWasmExpr :: Expression -> Text
 printWasmExpr expr =
   case expr of
-    Sequence exprs -> intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)
-    Const n -> "(i32.const " ++ show n ++ ")"
-    GetLocal name -> "(get_local $" ++ F.s name ++ ")"
+    Sequence exprs ->
+      Text.intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)
+    Const n -> "(i32.const " <> showT n <> ")"
+    GetLocal name -> "(get_local $" <> F.s name <> ")"
     SetLocal name expr' ->
-      "(set_local $" ++ F.s name ++ " " ++ printWasmExpr expr' ++ ")"
+      "(set_local $" <> F.s name <> " " <> printWasmExpr expr' <> ")"
     Call name args ->
-      "(" ++
-      F.s name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
+      "(" <> F.s name <> "\n" <> indent2 (Text.unlines (printWasmExpr <$> args)) <>
+      "\n)"
     NamedCall name args ->
-      "(call $" ++
-      F.s name ++ "\n" ++ indent2 (unlines (printWasmExpr <$> args)) ++ "\n)"
+      "(call $" <> F.s name <> "\n" <>
+      indent2 (Text.unlines (printWasmExpr <$> args)) <>
+      "\n)"
     If conditional a b ->
-      unlines
+      Text.unlines
         ([ "(if (result i32)"
          , indent2 $ printWasmExpr conditional
          , indent2 $ printWasmExpr a
          ] <>
          [indent2 $ maybe "(i32.const 0)" printWasmExpr b, ")"])
 
-printDeclaration :: Declaration -> String
+printDeclaration :: Declaration -> Text
 printDeclaration (Declaration name args body) =
-  intercalate
+  Text.intercalate
     "\n"
-    [ "(func $" ++
-      F.s name ++
-      unwords (map (\x -> " (param $" ++ x ++ " i32)") (F.s <$> args)) ++
-      " (result i32) " ++ unwords (printLocal <$> locals body)
-    , indent2 $ unlines ["(return", indent2 $ printWasmExpr body, ")"]
+    [ "(func $" <> F.s name <>
+      Text.unwords (fmap (\x -> " (param $" <> x <> " i32)") (F.s <$> args)) <>
+      " (result i32) " <>
+      Text.unwords (printLocal <$> locals body)
+    , indent2 $ Text.unlines ["(return", indent2 $ printWasmExpr body, ")"]
     , ")"
     ]
   where
-    locals :: Expression -> [String]
+    locals :: Expression -> [Text]
     locals expr' =
       case expr' of
         SetLocal name _ -> [F.s name]
@@ -320,5 +339,5 @@ printDeclaration (Declaration name args body) =
         _ -> []
     -- TODO - there are probably other important cases we should handle here
 
-printLocal :: String -> String
-printLocal name = "(local $" ++ name ++ " i32)"
+printLocal :: Text -> Text
+printLocal name = "(local $" <> name <> " i32)"

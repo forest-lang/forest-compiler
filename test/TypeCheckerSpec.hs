@@ -10,6 +10,8 @@ module TypeCheckerSpec
 import Data.Either
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
+import Data.Text (Text)
+import qualified Data.Text as T
 import System.Exit
 import System.IO.Temp
 import System.Process
@@ -20,7 +22,7 @@ import HaskellSyntax
 import Language
 import TypeChecker
 
-valid :: String
+valid :: Text
 valid =
   [r|
 add :: Int -> Int -> Int
@@ -31,7 +33,7 @@ main =
   add 1 1
 |]
 
-invalid :: String
+invalid :: Text
 invalid =
   [r|
 add :: Int -> Int -> Int
@@ -42,7 +44,7 @@ main =
   add 1 "test"
 |]
 
-local :: String
+local :: Text
 local =
   [r|
 add :: Int -> Int -> Int
@@ -53,14 +55,14 @@ addOne n =
   add n 1
 |]
 
-wrongReturnType :: String
+wrongReturnType :: Text
 wrongReturnType =
   [r|
 foo :: Int
 foo = "test"
 |]
 
-badCase :: String
+badCase :: Text
 badCase =
   [r|
 main :: Int
@@ -70,7 +72,7 @@ main =
     2 -> 2
 |]
 
-goodCase :: String
+goodCase :: Text
 goodCase =
   [r|
 main :: Int -> Int
@@ -81,7 +83,7 @@ main i =
     i -> 5
 |]
 
-badLet :: String
+badLet :: Text
 badLet =
   [r|
 main :: Int
@@ -96,7 +98,7 @@ main =
     a + b
 |]
 
-goodLet :: String
+goodLet :: Text
 goodLet =
   [r|
 main :: Int
@@ -111,7 +113,7 @@ main =
     a + b
 |]
 
-goodFunctionLet :: String
+goodFunctionLet :: Text
 goodFunctionLet =
   [r|
 main :: Int
@@ -126,7 +128,7 @@ main =
     addOne 10
 |]
 
-unorderedDeclarations :: String
+unorderedDeclarations :: Text
 unorderedDeclarations =
   [r|
 main :: Int
@@ -136,7 +138,7 @@ foo :: Int
 foo = 5
 |]
 
-messages :: Either (NonEmpty CompileError) () -> [String]
+messages :: Either (NonEmpty CompileError) () -> [Text]
 messages r =
   case r of
     Right () -> []
