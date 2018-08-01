@@ -50,7 +50,7 @@ fib i =
   case i of
     0 -> 1
     1 -> 1
-    i -> (fib i - 2) + (fib i - 1)
+    i -> fib (i - 2) + fib (i - 1)
 ```
 
 However, this could just as easily be written using another syntax more comparable to JavaScript:
