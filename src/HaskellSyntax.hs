@@ -20,7 +20,7 @@ import Control.Monad (void)
 import Data.Functor.Identity ()
 import qualified Data.List.NonEmpty as NE
 import Data.Semigroup
-import Data.Text
+import Data.Text (Text, intercalate)
 import qualified Data.Text as T
 import Data.Void (Void)
 
@@ -40,30 +40,30 @@ lineComment :: Parser ()
 lineComment = L.skipLineComment "#"
 
 scn :: Parser ()
-scn = L.space space1 lineComment Text.Megaparsec.empty
+scn = L.space space1 lineComment Text.Megaparsec.empty <?> "whitespace"
 
 sc :: Parser ()
-sc = L.space (void $ takeWhile1P Nothing f) lineComment Text.Megaparsec.empty
+sc =
+  L.space (void $ takeWhile1P Nothing f) lineComment Text.Megaparsec.empty <?>
+  "whitespace"
   where
     f x = x == ' ' || x == '\t'
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
-exprWithoutCall :: Parser Expression
-exprWithoutCall = makeExprParser (lexeme termWithoutCall) table <?> "expression"
-
 expr :: Parser Expression
 expr = makeExprParser term table <?> "expression"
 
 term :: Parser Expression
-term = sc *> (try pCase <|> try pLet <|> call <|> parens <|> number <|> pString)
-
-termWithoutCall :: Parser Expression
-termWithoutCall =
-  sc *>
-  (try pCase <|> try pLet <|> parens <|> identifier <|> number <|> pString)
-
+term = L.lineFold scn $ \sc' -> terms >>= pApply sc'
+  where
+    terms =
+      choice [try pCase, try pLet, identifier, parens, number, pString] <?>
+      "term"
+    pApply sc' e =
+      (foldl1 Apply . (\x -> e : x) <$> (some (try (sc' *> terms)) <* sc)) <|>
+      return e
 pString :: Parser Expression
 pString =
   String' . T.pack <$> between (string "\"") (string "\"") (many $ notChar '"')
@@ -138,20 +138,6 @@ pLet = do
     p = do
       _ <- symbol "let"
       return $ L.IndentSome Nothing (return . NE.fromList) declaration
-
-call :: Parser Expression
-call = do
-  name <- exprWithoutCall
-  args <- many (try exprWithoutCall)
-  return $
-    case args of
-      [] -> name
-      (x:xs) -> apply name x (Prelude.reverse xs)
-  where
-    apply left right remainder =
-      case remainder of
-        [] -> Apply left right
-        (x:xs) -> Apply (apply left right xs) x
 
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
