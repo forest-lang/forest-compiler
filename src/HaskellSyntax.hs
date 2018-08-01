@@ -58,12 +58,10 @@ expr = makeExprParser term table <?> "expression"
 term :: Parser Expression
 term = L.lineFold scn $ \sc' -> terms >>= pApply sc'
   where
-    terms =
-      choice [try pCase, try pLet, identifier, parens, number, pString] <?>
-      "term"
+    terms = choice [pCase, pLet, identifier, parens, number, pString] <?> "term"
     pApply sc' e =
-      (foldl1 Apply . (\x -> e : x) <$> (some (try (sc' *> terms)) <* sc)) <|>
-      return e
+      (foldl1 Apply . (:) e <$> (some (try (sc' *> terms)) <* sc)) <|> return e
+
 pString :: Parser Expression
 pString =
   String' . T.pack <$> between (string "\"") (string "\"") (many $ notChar '"')
