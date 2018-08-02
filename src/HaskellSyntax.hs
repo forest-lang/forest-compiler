@@ -53,7 +53,7 @@ lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
 expr :: Parser Expression
-expr = makeExprParser term table <?> "expression"
+expr = makeExprParser (lexeme term) table <?> "expression"
 
 term :: Parser Expression
 term = L.lineFold scn $ \sc' -> terms >>= pApply sc'
@@ -75,16 +75,13 @@ parens = BetweenParens <$> parens' expr
 parens' :: Parser a -> Parser a
 parens' = between (symbol "(" *> scn) (scn <* symbol ")")
 
-spaceAround :: Parser a -> Parser a
-spaceAround p = try (sc *> try p <* sc)
-
 table :: [[Operator Parser Expression]]
 table =
-  [ [InfixL (Infix Divide <$ spaceAround (char '/'))]
-  , [InfixL (Infix Multiply <$ spaceAround (char '*'))]
-  , [InfixL (Infix StringAdd <$ spaceAround (symbol "++"))]
-  , [InfixL (Infix Add <$ spaceAround (char '+'))]
-  , [InfixL (Infix Subtract <$ spaceAround (char '-'))]
+  [ [InfixL (Infix Divide <$ char '/')]
+  , [InfixL (Infix Multiply <$ char '*')]
+  , [InfixL (Infix StringAdd <$ symbol "++")]
+  , [InfixL (Infix Add <$ char '+')]
+  , [InfixL (Infix Subtract <$ char '-')]
   ]
 
 number :: Parser Expression
@@ -94,7 +91,7 @@ rws :: [Text] -- list of reserved words
 rws = ["case", "of", "let"]
 
 pIdent :: Parser Ident
-pIdent = try (T.pack <$> p >>= check) -- TODO - can we make p return Text?
+pIdent = T.pack <$> p >>= check -- TODO - can we make p return Text?
   where
     p = (:) <$> letterChar <*> many alphaNumChar
     check x =
@@ -195,16 +192,13 @@ annotationTypes = do
   return (NE.fromList $ firstType : types)
 
 pType :: Parser AnnotationType
-pType = do
-  p <- maybeParse $ try $ parens' (Parenthesized <$> annotationTypes)
-  case p of
-    Just p' -> return p'
-    Nothing -> do
-      i <- sc *> (Concrete <$> pIdent)
-      e <- maybeParse (sc *> pType)
-      case e of
-        Just e' -> return $ TypeApplication i e'
-        Nothing -> return i
+pType =
+  parens' (Parenthesized <$> annotationTypes) <|> do
+    i <- sc *> (Concrete <$> pIdent)
+    e <- maybeParse (sc *> pType)
+    case e of
+      Just e' -> return $ TypeApplication i e'
+      Nothing -> return i
 
 maybeParse :: Parser a -> Parser (Maybe a)
 maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack
