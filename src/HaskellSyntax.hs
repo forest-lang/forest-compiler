@@ -193,12 +193,10 @@ annotationTypes = do
 
 pType :: Parser AnnotationType
 pType =
-  parens' (Parenthesized <$> annotationTypes) <|> do
-    i <- sc *> (Concrete <$> pIdent)
-    e <- maybeParse (sc *> pType)
-    case e of
-      Just e' -> return $ TypeApplication i e'
-      Nothing -> return i
+  let typeInParens = parens' (Parenthesized <$> annotationTypes)
+      concreteType = sc *> (Concrete <$> pIdent)
+      typeApplication t = (TypeApplication t <$> try (sc *> pType)) <|> return t
+  in typeInParens <|> concreteType >>= typeApplication
 
 maybeParse :: Parser a -> Parser (Maybe a)
 maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack
