@@ -37,7 +37,7 @@ propParseAndPrint m =
 haskellSyntaxSpecs :: SpecWith ()
 haskellSyntaxSpecs =
   describe "Forest haskell syntax" $ do
-    it "parses a module with multple assignments" $ do
+    it "parses a module with multiple assignments" $ do
       code <- readFixture "multiple-assignments"
       let parseResult = parseModule code
       let expected =
