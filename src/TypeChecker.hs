@@ -13,11 +13,13 @@ module TypeChecker
   ) where
 
 import Data.Either
+import qualified Data.Foldable as F
 import Data.List (find, intercalate)
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty, toList)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (mapMaybe, maybeToList)
 import Data.Semigroup
+import Data.Sequence (replicateM)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -159,7 +161,8 @@ checkTopLevel state topLevel =
 typeEq :: Type -> Type -> Bool
 typeEq a b =
   case (a, b) of
-    (Custom name (_ : __), Applied (TypeLambda name') _) -> name == name'
+    (Custom name (_:__), Applied (TypeLambda name') _) -> name == name'
+    (Applied (TypeLambda name') _, Custom name (_:__)) -> name == name'
     _ -> a == b
 
 checkDeclaration ::
@@ -278,13 +281,21 @@ inferType state expr =
                 [x] ->
                   Right
                     (TypeChecker.Case (typeOf . snd $ NE.head x) value types)
-                _ ->
-                  Left $
-                  compileError
-                    ("Case expression has multiple return types: " <>
-                     T.intercalate
-                       ", "
-                       (printType <$> NE.toList (typeOf . snd <$> types)))
+                types' ->
+                  if all
+                       (\p ->
+                          case p of
+                            (x:y:_) -> x `typeEq` y
+                            _ -> False)
+                       (F.toList <$>
+                        replicateM 2 (typeOf . snd . NE.head <$> types'))
+                    then Right (TypeChecker.Case (typeOf . snd $ NE.head (head types')) value types)
+                    else Left $
+                         compileError
+                           ("Case expression has multiple return types: " <>
+                            T.intercalate
+                              ", "
+                              (printType <$> NE.toList (typeOf . snd <$> types)))
     Language.Let declarations' value ->
       let branchTypes ::
                [TypedDeclaration]

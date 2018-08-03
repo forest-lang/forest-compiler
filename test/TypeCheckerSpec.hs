@@ -151,6 +151,12 @@ main = Just 0
 
 nada :: Maybe Int
 nada = Nothing
+
+doubleIfFive :: Int -> Maybe Int
+doubleIfFive n =
+  case n of
+    5 -> Just 10
+    n -> Nothing
 |]
 
 messages :: Either (NonEmpty CompileError) () -> [Text]
