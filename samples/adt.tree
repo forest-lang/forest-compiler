@@ -11,3 +11,11 @@ data Expression
   | Number Int
   | Infix OperatorExpr Expression Expression
 
+foo :: Int -> Maybe Int
+foo n =
+  case n of
+    5 -> Just 10
+    n -> Nothing
+
+main :: Maybe Int
+main = foo 5
