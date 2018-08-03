@@ -44,7 +44,7 @@ data InvalidConstruct
 
 data CompileState = CompileState
   { errors :: [CompileError]
-  , declarations :: [Declaration]
+  , typeLambdas :: [TypeLambda]
   , typedDeclarations :: [TypedDeclaration]
   } deriving (Eq, Show)
 
@@ -53,6 +53,15 @@ data Type
   | Str
   | Lambda Type
            Type
+  | Applied TypeLambda
+            Type
+  | Generic Ident
+  | Custom Ident
+           [Type]
+  deriving (Eq, Show)
+
+newtype TypeLambda =
+  TypeLambda Ident
   deriving (Eq, Show)
 
 newtype TypedModule =
@@ -61,6 +70,7 @@ newtype TypedModule =
 data TypedDeclaration =
   TypedDeclaration Ident
                    [(Ident, Type)]
+                   Type
                    TypedExpression
   deriving (Show, Eq, G.Generic)
 
@@ -84,37 +94,35 @@ data TypedExpression
   | String' Text
   deriving (Show, Eq, G.Generic)
 
-addDeclaration ::
-     CompileState -> Declaration -> TypedDeclaration -> CompileState
-addDeclaration state declaration typed =
+addDeclarations :: CompileState -> [TypedDeclaration] -> CompileState
+addDeclarations state declarations =
   CompileState
-    { declarations = declaration : declarations state
-    , typedDeclarations = typed : typedDeclarations state
+    { typeLambdas = typeLambdas state
+    , typedDeclarations = declarations ++ typedDeclarations state
     , errors = errors state
     }
 
 addError :: CompileState -> CompileError -> CompileState
 addError state error =
   CompileState
-    { declarations = declarations state
+    { typeLambdas = typeLambdas state
     , typedDeclarations = typedDeclarations state
     , errors = error : errors state
     }
 
-topLevelToDeclaration :: TopLevel -> Maybe Declaration
-topLevelToDeclaration tl =
-  case tl of
-    Function d -> Just d
-    DataType _ -> Nothing
+addTypeLambda :: CompileState -> TypeLambda -> CompileState
+addTypeLambda state tl =
+  CompileState
+    { typeLambdas = tl : typeLambdas state
+    , typedDeclarations = typedDeclarations state
+    , errors = errors state
+    }
 
 checkModule :: Module -> Either (NonEmpty CompileError) TypedModule
 checkModule (Module topLevels) =
-  let declarations :: [Declaration]
-      declarations = mapMaybe topLevelToDeclaration topLevels
-      initialState :: CompileState
+  let initialState :: CompileState
       initialState =
-        (CompileState
-           {errors = [], declarations = declarations, typedDeclarations = []})
+        (CompileState {typeLambdas = [], errors = [], typedDeclarations = []})
       compileState :: CompileState
       compileState = foldl checkTopLevel initialState topLevels
       e :: Maybe (NonEmpty CompileError)
@@ -126,46 +134,63 @@ checkModule (Module topLevels) =
 checkTopLevel :: CompileState -> TopLevel -> CompileState
 checkTopLevel state topLevel =
   case topLevel of
-    DataType _ -> state
+    DataType (ADT name generics constructors) ->
+      addDeclarations
+        (addTypeLambda state tl)
+        (makeDeclaration <$> NE.toList constructors)
+      where tl = (TypeLambda name)
+            makeDeclaration (Constructor name args) =
+              TypedDeclaration
+                name
+                ((\x -> (x, Generic x)) <$> args)
+                (constructorType args)
+                (TypeChecker.Number 0)
+            constructorType args =
+              foldr
+                Lambda
+                (Custom name (Generic <$> generics))
+                (Generic <$> args)
     Function declaration ->
-      let result = checkDeclaration (declarations state) declaration
+      let result = checkDeclaration state declaration
        in case result of
-            Right t -> addDeclaration state declaration t
+            Right t -> addDeclarations state [t]
             Left e -> addError state e
 
+typeEq :: Type -> Type -> Bool
+typeEq a b =
+  case (a, b) of
+    (Custom name (_ : __), Applied (TypeLambda name') _) -> name == name'
+    _ -> a == b
+
 checkDeclaration ::
-     [Declaration] -> Declaration -> Either CompileError TypedDeclaration
-checkDeclaration declarations declaration = do
+     CompileState -> Declaration -> Either CompileError TypedDeclaration
+checkDeclaration state declaration = do
   let (Declaration _ name args expr) = declaration
-  annotationTypes <- inferDeclarationType declaration
+  annotationTypes <- inferDeclarationType (typeLambdas state) declaration
   let argsWithTypes = zip args (NE.toList annotationTypes)
   let locals = makeDeclaration <$> argsWithTypes
   let expectedReturnType =
         collapseTypes (NE.fromList (NE.drop (length args) annotationTypes)) -- TODO remove NE.fromList
-  let actualReturnType = inferType (locals <> declarations) expr
+  let actualReturnType = inferType (addDeclarations state locals) expr
   let typeChecks a =
-        if typeOf a == expectedReturnType
-          then Right $ TypedDeclaration name argsWithTypes a
+        if typeOf a `typeEq` expectedReturnType
+          then Right $
+               TypedDeclaration
+                 name
+                 argsWithTypes
+                 (foldr1 Lambda annotationTypes)
+                 a
           else Left $
                CompileError
                  (DeclarationError declaration)
-                 ("Expected " <>
-                  s name <>
-                  " to return type " <>
+                 ("Expected " <> s name <> " to return type " <>
                   printType expectedReturnType <>
-                  ", but instead got type " <> printType (typeOf a))
+                  ", but instead got type " <>
+                  printType (typeOf a))
   actualReturnType >>= typeChecks
   where
-    makeDeclaration (name, t) =
-      Declaration
-        (Just (Annotation name (annotationType t :| [])))
-        name
-        []
-        (Language.Number 0)
-    annotationType t =
-      case t of
-        Lambda a b -> Parenthesized (annotationType a :| [annotationType b])
-        n -> Concrete (Ident $ NonEmptyString (T.head $ printType n) (T.tail $ printType n))
+    makeDeclaration (i, t) =
+      TypedDeclaration i [] t (TypeChecker.Identifier t i)
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -185,35 +210,33 @@ typeOf t =
     TypeChecker.BetweenParens te -> typeOf te
     TypeChecker.String' _ -> Str
 
-inferType :: [Declaration] -> Expression -> Either CompileError TypedExpression
-inferType declarations expr =
+inferType :: CompileState -> Expression -> Either CompileError TypedExpression
+inferType state expr =
   case expr of
     Language.Number n -> Right $ TypeChecker.Number n
     Language.String' s -> Right $ TypeChecker.String' s
-    Language.BetweenParens expr -> inferType declarations expr
+    Language.BetweenParens expr -> inferType state expr
     Language.Identifier name ->
-      let makeIdentifier types =
-            TypeChecker.Identifier (collapseTypes types) name
-       in case find (m name) declarations of
-            Just declaration ->
-              makeIdentifier <$> inferDeclarationType declaration
-            Nothing ->
-              Left $
-              compileError
-                ("It's not clear what \"" <> idToString name <> "\" refers to")
+      case find (m name) declarations of
+        Just (TypedDeclaration _ _ t _) -> Right $ TypeChecker.Identifier t name
+        Nothing ->
+          Left $
+          compileError
+            ("It's not clear what \"" <> idToString name <> "\" refers to")
     Language.Apply a b ->
-      let typedExprs =
-            (,) <$> inferType declarations a <*> inferType declarations b
+      let typedExprs = (,) <$> inferType state a <*> inferType state b
           inferApplication (a, b) =
             case (typeOf a, typeOf b) of
+              (Lambda (Generic _) (Custom n _), b') ->
+                Right $ TypeChecker.Apply (Applied (TypeLambda n) b') a b
               (Lambda x r, b') ->
                 if x == b'
                   then Right (TypeChecker.Apply r a b)
                   else Left $
                        compileError
-                         ("Function expected argument of type " <>
-                          printType x <>
-                          ", but instead got argument of type " <> printType b')
+                         ("Function expected argument of type " <> printType x <>
+                          ", but instead got argument of type " <>
+                          printType b')
               _ ->
                 Left $
                 compileError $
@@ -226,7 +249,7 @@ inferType declarations expr =
             case op of
               StringAdd -> Str
               _ -> Num
-          types = (,) <$> inferType declarations a <*> inferType declarations b
+          types = (,) <$> inferType state a <*> inferType state b
           checkInfix (a, b) =
             if typeOf a == expected && typeOf b == expected
               then Right (TypeChecker.Infix expected op a b)
@@ -239,12 +262,12 @@ inferType declarations expr =
                       printType (typeOf b))
        in types >>= checkInfix
     Language.Case value branches -> do
-      v <- inferType declarations value
+      v <- inferType state value
       b <- sequence $ inferBranch <$> branches
       allBranchesHaveSameType v b
       where inferBranch (a, b) = do
-              a' <- inferType declarations a
-              b' <- inferType declarations b
+              a' <- inferType state a
+              b' <- inferType state b
               return (a', b')
             allBranchesHaveSameType ::
                  TypedExpression
@@ -263,15 +286,27 @@ inferType declarations expr =
                        ", "
                        (printType <$> NE.toList (typeOf . snd <$> types)))
     Language.Let declarations' value ->
-      let ds = NE.toList declarations' <> declarations
-          branchTypes = sequence (checkDeclaration ds <$> declarations')
-       in TypeChecker.Let <$> branchTypes <*> inferType ds value
+      let branchTypes ::
+               [TypedDeclaration]
+            -> [Declaration]
+            -> Either CompileError [TypedDeclaration]
+          branchTypes typed untyped =
+            case untyped of
+              [] -> Right []
+              (x:xs) ->
+                checkDeclaration (addDeclarations state typed) x >>= \t ->
+                  (:) t <$> branchTypes (typed ++ [t]) xs
+       in branchTypes [] (NE.toList declarations') >>= \b ->
+            TypeChecker.Let (NE.fromList b) <$>
+            inferType (addDeclarations state b) value
   where
-    m name (Declaration _ name' _ _) = name == name'
+    m name (TypedDeclaration name' _ _ _) = name == name'
     compileError = CompileError $ ExpressionError expr
+    declarations = typedDeclarations state
 
-inferDeclarationType :: Declaration -> Either CompileError (NE.NonEmpty Type)
-inferDeclarationType declaration =
+inferDeclarationType ::
+     [TypeLambda] -> Declaration -> Either CompileError (NE.NonEmpty Type)
+inferDeclarationType typeLambdas declaration =
   case annotation of
     Just (Annotation _ types) -> sequence $ annotationTypeToType <$> types
     Nothing -> Left $ compileError "For now, annotations are required."
@@ -282,8 +317,16 @@ inferDeclarationType declaration =
       case t of
         Concrete i -> stringToType i compileError
         Parenthesized types -> reduceTypes types
-        TypeApplication _ _ ->
-          error "lack information to infer type application"
+        TypeApplication a b ->
+          case a of
+            Concrete i ->
+              case find (m i) typeLambdas of
+                Just tl -> Applied tl <$> annotationTypeToType b
+                Nothing ->
+                  Left $
+                  compileError $ "Could not find type lambda: " <> idToString i
+              where m name (TypeLambda name') = name == name'
+            _ -> error "nah"
     reduceTypes :: NE.NonEmpty AnnotationType -> Either CompileError Type
     reduceTypes types =
       collapseTypes <$> sequence (annotationTypeToType <$> types)
@@ -304,6 +347,9 @@ printType t =
     Str -> "String"
     Num -> "Int"
     Lambda a r -> printType a <> " -> " <> printType r
+    Applied (TypeLambda name) b -> idToString name <> " " <> printType b
+    Generic n -> idToString n
+    Custom n ts -> T.intercalate " " $ idToString n : (printType <$> ts)
 
 printSignature :: [Type] -> Text
 printSignature types = T.intercalate " -> " (printType <$> types)

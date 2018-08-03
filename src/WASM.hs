@@ -145,14 +145,14 @@ allocateBytes (Module topLevel bytes) extraBytes =
   Module topLevel (bytes + extraBytes)
 
 compileDeclaration :: Module -> TypedDeclaration -> Module
-compileDeclaration m (TypedDeclaration name args fexpr) =
+compileDeclaration m (TypedDeclaration name args _ fexpr) =
   let (m', expr') = compileExpression m fexpr
       func = Func $ Declaration name (fst <$> args) expr'
    in addTopLevel m' [func]
 
 compileInlineDeclaration ::
      Module -> TypedDeclaration -> (Maybe Expression, Module)
-compileInlineDeclaration m (TypedDeclaration name args fexpr) =
+compileInlineDeclaration m (TypedDeclaration name args _ fexpr) =
   let (m', expr') = compileExpression m fexpr
    in case args of
         [] -> (Just $ SetLocal name expr', m')

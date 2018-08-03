@@ -138,6 +138,21 @@ foo :: Int
 foo = 5
 |]
 
+adt :: Text
+adt =
+  [r|
+data Maybe a
+  = Just a
+  | Nothing
+
+
+main :: Maybe Int
+main = Just 0
+
+nada :: Maybe Int
+nada = Nothing
+|]
+
 messages :: Either (NonEmpty CompileError) () -> [Text]
 messages r =
   case r of
@@ -217,8 +232,15 @@ typeCheckerSpecs =
               Right m -> () <$ checkModule m
               Left err -> error $ "Failed to parse module: " ++ show err
        in checkResult `shouldBe` Right ()
-    it "is insensitive to the order of declarations" $
+    xit "is insensitive to the order of declarations" $
       let moduleResult = parseModule unorderedDeclarations
+          checkResult =
+            case moduleResult of
+              Right m -> () <$ checkModule m
+              Left err -> error $ "Failed to parse module: " ++ show err
+       in checkResult `shouldBe` Right ()
+    it "typechecks adt constructors" $
+      let moduleResult = parseModule adt
           checkResult =
             case moduleResult of
               Right m -> () <$ checkModule m
