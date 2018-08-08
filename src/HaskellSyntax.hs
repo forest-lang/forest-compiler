@@ -9,6 +9,7 @@ module HaskellSyntax
   , s
   , expr
   , annotation
+  , dataType
   , operatorToString
   , printDeclaration
   , indent2
@@ -156,8 +157,12 @@ dataType = do
   where
     pConstructor = do
       name <- sc *> pIdent
-      types <- many (sc *> pIdent)
+      types <- maybeParse pConstructorType
       return $ Constructor name types
+    pConstructorType =
+      ((CTParenthesized <$> try (sc *> parens' pConstructorType)) <|>
+       (CTConcrete <$> (sc *> pIdent))) >>=
+      (\x -> CTApplied x <$> pConstructorType <|> return x)
 
 function :: Parser TopLevel
 function = Function <$> declaration
@@ -196,7 +201,7 @@ pType =
   let typeInParens = parens' (Parenthesized <$> annotationTypes)
       concreteType = sc *> (Concrete <$> pIdent)
       typeApplication t = (TypeApplication t <$> try (sc *> pType)) <|> return t
-  in typeInParens <|> concreteType >>= typeApplication
+   in typeInParens <|> concreteType >>= typeApplication
 
 maybeParse :: Parser a -> Parser (Maybe a)
 maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack
@@ -223,7 +228,12 @@ printDataType (ADT name generics constructors) =
      (intercalate "\n| " . NE.toList) (printConstructor <$> constructors))
   where
     printConstructor (Constructor name' types) =
-      T.unwords $ s <$> (name' : types)
+      s name' <> " " <> maybe "" printType types
+    printType t =
+      case t of
+        CTConcrete i -> s i
+        CTApplied a b -> printType a <> " " <> printType b
+        CTParenthesized t -> "(" <> printType t <> ")"
 
 printDeclaration :: Declaration -> Text
 printDeclaration (Declaration annotation' name args expr') =

@@ -10,6 +10,7 @@ module Language
   , AnnotationType(..)
   , Module(..)
   , Constructor(..)
+  , ConstructorType(..)
   , TopLevel(..)
   , ADT(..)
   , s
@@ -76,7 +77,13 @@ data Expression
 
 data Constructor =
   Constructor Ident
-              [Ident]
+              (Maybe ConstructorType)
+  deriving (Show, Eq, G.Generic)
+
+data ConstructorType
+  = CTConcrete Ident
+  | CTApplied ConstructorType ConstructorType
+  | CTParenthesized ConstructorType
   deriving (Show, Eq, G.Generic)
 
 data OperatorExpr

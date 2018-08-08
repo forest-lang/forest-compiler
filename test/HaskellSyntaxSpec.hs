@@ -137,6 +137,20 @@ haskellSyntaxSpecs =
                 (Parenthesized (Concrete (ne "Int") :| [Concrete (ne "String")]))
             ]
       parseResult `shouldBe` Right expected
+    it "parses complex type applications in adt constructors" $ do
+      let code = "data Foo a\n= Foo (Maybe a)"
+      let parseResult = parse dataType "" code
+      let expected =
+            DataType $
+            ADT
+              (ne "Foo")
+              [ne "a"]
+              [ Constructor (ne "Foo") $
+                Just
+                  (CTParenthesized
+                     (CTApplied (CTConcrete (ne "Maybe")) (CTConcrete (ne "a"))))
+              ]
+      parseResult `shouldBe` Right expected
     it "prints and reparses arbitrary expressions losslessly" $
       withMaxSuccess 75 (property propParseAndPrint)
 
