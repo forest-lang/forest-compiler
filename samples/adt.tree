@@ -19,3 +19,11 @@ foo n =
 
 main :: Maybe Int
 main = foo 5
+
+data NumberList
+  = Node Int NumberList
+  | Tail Int
+
+foo :: NumberList
+foo = Node 10 (Tail 5)
+

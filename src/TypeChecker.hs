@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module TypeChecker
   ( checkModule
@@ -140,7 +141,7 @@ checkTopLevel state topLevel =
       addDeclarations
         (addTypeLambda state tl)
         (makeDeclaration <$> NE.toList constructors)
-      where tl = (TypeLambda name)
+      where tl = TypeLambda name
             makeDeclaration (Constructor name args) =
               TypedDeclaration
                 name
@@ -151,7 +152,7 @@ checkTopLevel state topLevel =
               foldr
                 Lambda
                 (Custom name (Generic <$> generics))
-                (Generic <$> args)
+                (stringToType <$> args)
     Function declaration ->
       let result = checkDeclaration state declaration
        in case result of
@@ -230,7 +231,7 @@ inferType state expr =
       let typedExprs = (,) <$> inferType state a <*> inferType state b
           inferApplication (a, b) =
             case (typeOf a, typeOf b) of
-              (Lambda (Generic _) (Custom n _), b') ->
+              (Lambda (Generic _) (Custom n x), b') | not . null $ x ->
                 Right $ TypeChecker.Apply (Applied (TypeLambda n) b') a b
               (Lambda x r, b') ->
                 if x == b'
@@ -283,13 +284,16 @@ inferType state expr =
                     (TypeChecker.Case (typeOf . snd $ NE.head x) value types)
                 types' ->
                   if all
-                       (\p ->
-                          case p of
-                            (x:y:_) -> x `typeEq` y
-                            _ -> False)
+                       (\case
+                          (x:y:_) -> x `typeEq` y
+                          _ -> False)
                        (F.toList <$>
                         replicateM 2 (typeOf . snd . NE.head <$> types'))
-                    then Right (TypeChecker.Case (typeOf . snd $ NE.head (head types')) value types)
+                    then Right
+                           (TypeChecker.Case
+                              (typeOf . snd $ NE.head (head types'))
+                              value
+                              types)
                     else Left $
                          compileError
                            ("Case expression has multiple return types: " <>
@@ -326,7 +330,7 @@ inferDeclarationType typeLambdas declaration =
     compileError = CompileError $ DeclarationError declaration
     annotationTypeToType t =
       case t of
-        Concrete i -> stringToType i compileError
+        Concrete i -> Right $ stringToType i
         Parenthesized types -> reduceTypes types
         TypeApplication a b ->
           case a of
@@ -345,12 +349,13 @@ inferDeclarationType typeLambdas declaration =
 collapseTypes :: NE.NonEmpty Type -> Type
 collapseTypes = foldr1 Lambda
 
-stringToType :: Ident -> (Text -> CompileError) -> Either CompileError Type
-stringToType ident err =
+stringToType :: Ident -> Type
+stringToType ident =
   case idToString ident of
-    "String" -> Right Str
-    "Int" -> Right Num
-    s -> Left $ err ("don't know about type " <> showT s)
+    "String" -> Str
+    "Int" -> Num
+    i | i == T.toLower i -> Generic ident
+    _ -> Custom ident []
 
 printType :: Type -> Text
 printType t =
