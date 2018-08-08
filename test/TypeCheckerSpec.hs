@@ -157,6 +157,12 @@ doubleIfFive n =
   case n of
     5 -> Just 10
     n -> Nothing
+
+data User
+  = User String
+
+user :: User
+user = User "Nick"
 |]
 
 messages :: Either (NonEmpty CompileError) () -> [Text]
