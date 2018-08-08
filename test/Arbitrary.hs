@@ -36,6 +36,10 @@ instance Arbitrary Constructor where
   arbitrary = genConstructor
   shrink = genericShrink
 
+instance Arbitrary ConstructorType where
+  arbitrary = genConstructorType
+  shrink = genericShrink
+
 instance Arbitrary OperatorExpr where
   arbitrary = genOperator
   shrink = genericShrink
@@ -148,8 +152,20 @@ genADT = do
 genConstructor :: Gen Constructor
 genConstructor = do
   name <- genIdent
-  types <- listOf genIdent
+  types <- genMaybe genConstructorType
   return $ Constructor name types
+
+genConstructorType :: Gen ConstructorType
+genConstructorType = frequency [(100, concrete), (100, parens), (1, applied)]
+  where
+    concrete = CTConcrete <$> genIdent
+    applied =
+      CTApplied <$> genConstructorType <*> genConstructorType `suchThat` noApply
+    parens = CTParenthesized <$> genConstructorType
+    noApply ct =
+      case ct of
+        CTApplied _ _ -> False
+        _ -> True
 
 genDeclaration :: Gen Declaration
 genDeclaration = do
@@ -182,7 +198,7 @@ genInfix :: Gen Expression
 genInfix = do
   operator <- genOperator
   a <- genNumber -- TODO expand this definition
-  b <- suchThat genExpression excludingApply
+  b <- genExpression `suchThat` applicationIsExcluded
   return $ BetweenParens $ Infix operator a b
 
 genCall :: Gen Expression
@@ -200,12 +216,12 @@ genCall = do
       [ genIdentifier
       , genNumber
       , genString
-      , BetweenParens <$> suchThat genExpression excludingApply
+      , BetweenParens <$> genExpression `suchThat` applicationIsExcluded
       ]
   return $ Apply a b
 
-excludingApply :: Expression -> Bool
-excludingApply e =
+applicationIsExcluded :: Expression -> Bool
+applicationIsExcluded e =
   case e of
     Apply _ _ -> False
     _ -> True

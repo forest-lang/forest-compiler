@@ -11,6 +11,7 @@ module TypeChecker
   , typeOf
   , Type(..)
   , InvalidConstruct(..)
+  , replaceGenerics
   ) where
 
 import Data.Either
@@ -142,17 +143,21 @@ checkTopLevel state topLevel =
         (addTypeLambda state tl)
         (makeDeclaration <$> NE.toList constructors)
       where tl = TypeLambda name
-            makeDeclaration (Constructor name args) =
+            returnType = Custom name (Generic <$> generics)
+            makeDeclaration (Constructor name types) =
               TypedDeclaration
                 name
-                ((\x -> (x, Generic x)) <$> args)
-                (constructorType args)
+                []
+                (maybe returnType constructorType types)
                 (TypeChecker.Number 0)
-            constructorType args =
-              foldr
-                Lambda
-                (Custom name (Generic <$> generics))
-                (stringToType <$> args)
+            constructorType t = foldr Lambda returnType (constructorTypes t)
+            constructorTypes types =
+              case types of
+                CTConcrete i -> [stringToType i]
+                CTParenthesized (CTApplied (CTConcrete a) (CTConcrete b)) ->
+                  [Applied (TypeLambda a) (Generic b)]
+                CTParenthesized t -> constructorTypes t
+                CTApplied a b -> constructorTypes a ++ constructorTypes b
     Function declaration ->
       let result = checkDeclaration state declaration
        in case result of
@@ -174,10 +179,12 @@ checkDeclaration state declaration = do
   let argsWithTypes = zip args (NE.toList annotationTypes)
   let locals = makeDeclaration <$> argsWithTypes
   let expectedReturnType =
-        collapseTypes (NE.fromList (NE.drop (length args) annotationTypes)) -- TODO remove NE.fromList
+        (case (NE.drop (length args) annotationTypes) of
+           (x:xs) -> Right $ collapseTypes (x :| xs)
+           _ -> Left $ CompileError (DeclarationError declaration) "Not enough args")
   let actualReturnType = inferType (addDeclarations state locals) expr
-  let typeChecks a =
-        if typeOf a `typeEq` expectedReturnType
+  let typeChecks (a, returnType) =
+        if typeOf a `typeEq` returnType
           then Right $
                TypedDeclaration
                  name
@@ -188,10 +195,10 @@ checkDeclaration state declaration = do
                CompileError
                  (DeclarationError declaration)
                  ("Expected " <> s name <> " to return type " <>
-                  printType expectedReturnType <>
+                  printType returnType <>
                   ", but instead got type " <>
                   printType (typeOf a))
-  actualReturnType >>= typeChecks
+  (,) <$> actualReturnType <*> expectedReturnType >>= typeChecks
   where
     makeDeclaration (i, t) =
       TypedDeclaration i [] t (TypeChecker.Identifier t i)
@@ -231,10 +238,16 @@ inferType state expr =
       let typedExprs = (,) <$> inferType state a <*> inferType state b
           inferApplication (a, b) =
             case (typeOf a, typeOf b) of
-              (Lambda (Generic _) (Custom n x), b') | not . null $ x ->
-                Right $ TypeChecker.Apply (Applied (TypeLambda n) b') a b
+              (Lambda (Generic _) (Custom n x), b')
+                | not . null $ x ->
+                  Right $ TypeChecker.Apply (Applied (TypeLambda n) b') a b
+              (Lambda (Generic n) r, b') ->
+                Right (TypeChecker.Apply (replaceGenerics n b' r) a b)
+              (Lambda (Applied tl (Generic n)) r, (Applied tl' t))
+                | tl == tl' ->
+                  Right (TypeChecker.Apply (replaceGenerics n t r) a b)
               (Lambda x r, b') ->
-                if x == b'
+                if x `typeEq` b'
                   then Right (TypeChecker.Apply r a b)
                   else Left $
                        compileError
@@ -354,7 +367,8 @@ stringToType ident =
   case idToString ident of
     "String" -> Str
     "Int" -> Num
-    i | i == T.toLower i -> Generic ident
+    i
+      | i == T.toLower i -> Generic ident
     _ -> Custom ident []
 
 printType :: Type -> Text
@@ -369,3 +383,21 @@ printType t =
 
 printSignature :: [Type] -> Text
 printSignature types = T.intercalate " -> " (printType <$> types)
+
+mapType :: (Type -> Type) -> Type -> Type
+mapType f t =
+  case t of
+    Num -> f t
+    Str -> f t
+    Lambda a b -> f (Lambda (mapType f a) (mapType f b))
+    Applied tl t -> f (Applied tl (mapType f t))
+    Generic _ -> f t
+    Custom name types -> Custom name (mapType f <$> types)
+
+replaceGenerics :: Ident -> Type -> Type -> Type
+replaceGenerics name newType =
+  mapType
+    (\case
+       Generic n
+         | n == name -> newType
+       other -> other)

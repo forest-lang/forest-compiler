@@ -2,15 +2,6 @@ data Maybe a
   = Just a
   | Nothing
 
-data Either a b
-  = Left a
-  | Right b
-
-data Expression
-  = Identifier Ident
-  | Number Int
-  | Infix OperatorExpr Expression Expression
-
 foo :: Int -> Maybe Int
 foo n =
   case n of
@@ -20,10 +11,15 @@ foo n =
 main :: Maybe Int
 main = foo 5
 
-data NumberList
-  = Node Int NumberList
-  | Tail Int
+data List a
+  = Cons a (List a)
+  | Empty
 
-foo :: NumberList
-foo = Node 10 (Tail 5)
+foo :: List Int
+foo = Cons 1 (Cons 2 Empty)
 
+data NonEmptyList a
+  = NonEmptyList a (List a)
+
+fromList :: List a -> Maybe (NonEmptyList a)
+fromList l = Just (NonEmptyList 5 Empty)

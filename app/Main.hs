@@ -34,7 +34,7 @@ main = do
       contents <- TIO.readFile filename
       TIO.putStrLn $
         case check contents of
-          Success _ -> "Compiled successfully"
+          Success _ -> "🎉  no errors found 🎉"
           ParseErr err -> reportParseError filename contents err
           CompileErr errors ->
             (intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
