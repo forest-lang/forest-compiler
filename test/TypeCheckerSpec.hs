@@ -163,6 +163,12 @@ data User
 
 user :: User
 user = User "Nick"
+
+withDefault :: a -> Maybe a -> a
+withDefault d maybe =
+  case maybe of
+    Just a -> a
+    Nothing -> d
 |]
 
 messages :: Either (NonEmpty CompileError) () -> [Text]

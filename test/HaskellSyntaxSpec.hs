@@ -68,9 +68,9 @@ haskellSyntaxSpecs =
                   [ne "n"]
                   (Case
                      (Identifier (ne "n"))
-                     [ (Number 0, Number 1)
-                     , (Number 1, Number 1)
-                     , ( Identifier (ne "n")
+                     [ (ANumberLiteral 0, Number 1)
+                     , (ANumberLiteral 1, Number 1)
+                     , ( AIdentifier (ne "n")
                        , Infix Add (Identifier (ne "n")) (Number 1))
                      ])
               ]
@@ -88,9 +88,9 @@ haskellSyntaxSpecs =
                   [ne "n"]
                   (Case
                      (Identifier (ne "n"))
-                     [ (Number 0, Number 1)
-                     , (Number 1, Number 1)
-                     , (Identifier (ne "n"), Identifier (ne "n"))
+                     [ (ANumberLiteral 0, Number 1)
+                     , (ANumberLiteral 1, Number 1)
+                     , (AIdentifier (ne "n"), Identifier (ne "n"))
                      ])
               , Function $
                 Declaration
@@ -151,8 +151,36 @@ haskellSyntaxSpecs =
                      (CTApplied (CTConcrete (ne "Maybe")) (CTConcrete (ne "a"))))
               ]
       parseResult `shouldBe` Right expected
+    it "parses adt deconstructions in cases " $ do
+      code <- readFixture "case-deconstruction"
+      let parseResult = parseModule code
+      let expected =
+            Module
+              [ DataType
+                  (ADT
+                     (ne "Maybe")
+                     [ne "a"]
+                     (Constructor (ne "Just") (Just (CTConcrete (ne "a"))) :|
+                      [Constructor (ne "Nothing") Nothing]))
+              , Function
+                  (Declaration
+                     (Just
+                        (Annotation
+                           (ne "main")
+                           (TypeApplication
+                              (Concrete (ne "Maybe"))
+                              (Concrete (ne "Int")) :|
+                            [Concrete (ne "Int")])))
+                     (ne "main")
+                     [ne "m"]
+                     (Case
+                        (Identifier (ne "m"))
+                        ((ADeconstruction (ne "Just") [AIdentifier (ne "n")], Identifier (ne "n")) :|
+                         [(ADeconstruction (ne "Nothing") [], Number 0)])))
+              ]
+      parseResult `shouldBe` Right expected
     it "prints and reparses arbitrary expressions losslessly" $
-      withMaxSuccess 75 (property propParseAndPrint)
+      withMaxSuccess 100 (property propParseAndPrint)
 
 ne :: Text -> Ident
 ne s = Ident $ NonEmptyString (T.head s) (T.tail s)

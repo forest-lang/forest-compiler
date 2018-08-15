@@ -10,6 +10,7 @@ import Language
 
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty (NonEmpty(..))
 import Data.Semigroup
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -76,9 +77,13 @@ instance Arbitrary (NE.NonEmpty Declaration) where
   arbitrary = genNonEmpty genDeclaration
   shrink = shrinkNonEmpty
 
-instance Arbitrary (NE.NonEmpty (Expression, Expression)) where
+instance Arbitrary (NE.NonEmpty (Argument, Expression)) where
   arbitrary = genNonEmpty genCaseBranch
   shrink = shrinkNonEmpty
+
+instance Arbitrary Argument where
+  arbitrary = genArgument
+  shrink = genericShrink
 
 instance Arbitrary (NE.NonEmpty Ident) where
   arbitrary = genNonEmpty genIdent
@@ -160,7 +165,8 @@ genConstructorType = frequency [(100, concrete), (100, parens), (1, applied)]
   where
     concrete = CTConcrete <$> genIdent
     applied =
-      CTApplied <$> genConstructorType <*> genConstructorType `suchThat` noApply
+      CTApplied <$> (genConstructorType `suchThat` noApply) <*>
+      genConstructorType
     parens = CTParenthesized <$> genConstructorType
     noApply ct =
       case ct of
@@ -235,8 +241,19 @@ genCase = do
   cases <- genNonEmpty genCaseBranch
   return $ Case caseExpr cases
 
-genCaseBranch :: Gen (Expression, Expression)
-genCaseBranch = oneof [genNumber, genIdentifier] >*< genExpression
+genArgument :: Gen Argument
+genArgument =
+  oneof
+    [ ANumberLiteral <$> arbitrarySizedNatural
+    , AIdentifier <$>
+      (Ident <$> genNEString `suchThat` (not . firstLetterIsCapitalized))
+    ]
+  where
+    firstLetterIsCapitalized (NonEmptyString x _) =
+      T.singleton x == (T.toUpper . T.singleton $ x)
+
+genCaseBranch :: Gen (Argument, Expression)
+genCaseBranch = genArgument >*< genExpression
 
 genLet :: Gen Expression
 genLet = do

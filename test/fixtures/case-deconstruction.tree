@@ -1,0 +1,9 @@
+data Maybe a
+  = Just a
+  | Nothing
+
+main :: Maybe Int -> Int
+main m =
+  case m of
+    Just n -> n
+    Nothing -> 0
