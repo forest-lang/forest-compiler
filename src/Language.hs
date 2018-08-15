@@ -5,6 +5,7 @@ module Language
   , OperatorExpr(..)
   , Ident(..)
   , Expression(..)
+  , Argument(..)
   , Declaration(..)
   , Annotation(..)
   , AnnotationType(..)
@@ -68,11 +69,17 @@ data Expression
   | Apply Expression
           Expression
   | Case Expression
-         (NonEmpty (Expression, Expression))
+         (NonEmpty (Argument, Expression))
   | Let (NonEmpty Declaration)
         Expression
   | BetweenParens Expression
   | String' Text
+  deriving (Show, Eq, G.Generic)
+
+data Argument
+  = AIdentifier Ident
+  | ADeconstruction Ident [Argument]
+  | ANumberLiteral Int
   deriving (Show, Eq, G.Generic)
 
 data Constructor =
@@ -96,12 +103,12 @@ data OperatorExpr
 
 newtype Ident =
   Ident NonEmptyString
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data NonEmptyString =
   NonEmptyString Char
                  Text
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 s :: Ident -> Text
 s = idToString

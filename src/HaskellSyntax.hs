@@ -91,16 +91,25 @@ number = Number <$> (sc *> L.decimal)
 rws :: [Text] -- list of reserved words
 rws = ["case", "of", "let"]
 
-pIdent :: Parser Ident
-pIdent = T.pack <$> p >>= check -- TODO - can we make p return Text?
+makeIdent :: Parser Char -> Parser Char -> Parser Ident
+makeIdent firstLetter rest = T.pack <$> p >>= check -- TODO - can we make p return Text?
   where
-    p = (:) <$> letterChar <*> many alphaNumChar
+    p = (:) <$> firstLetter <*> many rest
     check x =
       if x `elem` rws
         then fail $ "keyword " <> show x <> " cannot be an identifier"
         else case x of
                "" -> fail "identifier must be longer than zero characters"
                _ -> return $ Ident $ NonEmptyString (T.head x) (T.tail x)
+
+pIdent :: Parser Ident
+pIdent = makeIdent letterChar alphaNumChar
+
+pCapitalizedIdent :: Parser Ident
+pCapitalizedIdent = makeIdent upperChar alphaNumChar
+
+pLowerCaseIdent :: Parser Ident
+pLowerCaseIdent = makeIdent lowerChar alphaNumChar
 
 pCase :: Parser Expression
 pCase = L.indentBlock scn p
@@ -114,13 +123,16 @@ pCase = L.indentBlock scn p
       return $
         L.IndentSome Nothing (return . Case caseExpr . NE.fromList) caseBranch
     caseBranch = do
-      sc
-      pattern' <- number <|> identifier
+      pattern' <- caseArgument
       sc
       _ <- symbol "->"
       scn
       branchExpr <- expr
       return (pattern', branchExpr)
+    caseArgument = sc *> (deconstruction <|> identifier <|> numberLiteral)
+    deconstruction = ADeconstruction <$> pCapitalizedIdent <*> many (try caseArgument)
+    identifier = AIdentifier <$> pLowerCaseIdent
+    numberLiteral = ANumberLiteral <$> L.decimal
 
 pLet :: Parser Expression
 pLet = do
@@ -276,8 +288,8 @@ printExpression expression =
     String' str -> "\"" <> str <> "\""
   where
     printPatterns patterns = T.unlines $ NE.toList $ printPattern <$> patterns
-    printPattern (patternExpr, resultExpr) =
-      printExpression patternExpr <> " -> " <> printSecondInfix resultExpr
+    printPattern (argument, resultExpr) =
+      printArgument argument <> " -> " <> printSecondInfix resultExpr
     printLet declarations expr' =
       intercalate "\n" $
       Prelude.concat
@@ -286,6 +298,12 @@ printExpression expression =
         , ["in"]
         , [indent2 $ printExpression expr']
         ]
+    printArgument a =
+      case a of
+        AIdentifier i -> s i
+        ADeconstruction ident args ->
+          T.intercalate " " $ s ident : (printArgument <$> args)
+        ANumberLiteral t -> showT t
     printSecondInfix expr' =
       if isComplex expr'
         then "\n" <> indent2 (printExpression expr')

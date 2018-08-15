@@ -8,6 +8,7 @@ module TypeChecker
   , TypedModule(..)
   , TypedDeclaration(..)
   , TypedExpression(..)
+  , TypedArgument(..)
   , typeOf
   , Type(..)
   , InvalidConstruct(..)
@@ -19,7 +20,9 @@ import qualified Data.Foldable as F
 import Data.List (find, intercalate)
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty, toList)
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (mapMaybe, maybeToList)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Semigroup
 import Data.Sequence (replicateM)
 import Data.Set (Set)
@@ -50,7 +53,13 @@ data CompileState = CompileState
   { errors :: [CompileError]
   , typeLambdas :: [TypeLambda]
   , typedDeclarations :: [TypedDeclaration]
+  , typeConstructors :: Map TypeLambda [TypedConstructor]
   } deriving (Eq, Show)
+
+data TypedConstructor =
+  TypedConstructor Ident
+                   [Type]
+  deriving (Eq, Show)
 
 data Type
   = Num
@@ -62,11 +71,11 @@ data Type
   | Generic Ident
   | Custom Ident
            [Type]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
 
 newtype TypeLambda =
   TypeLambda Ident
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
 
 newtype TypedModule =
   TypedModule [TypedDeclaration]
@@ -91,42 +100,49 @@ data TypedExpression
           TypedExpression
   | Case Type
          TypedExpression
-         (NE.NonEmpty (TypedExpression, TypedExpression))
+         (NE.NonEmpty (TypedArgument, TypedExpression))
   | Let (NE.NonEmpty TypedDeclaration)
         TypedExpression
   | BetweenParens TypedExpression
   | String' Text
   deriving (Show, Eq, G.Generic)
 
+data TypedArgument
+  = TAIdentifier Type
+                 Ident
+  | TANumberLiteral Int
+  | TADeconstruction Ident
+                     [TypedArgument]
+  deriving (Show, Eq, G.Generic)
+
 addDeclarations :: CompileState -> [TypedDeclaration] -> CompileState
 addDeclarations state declarations =
-  CompileState
-    { typeLambdas = typeLambdas state
-    , typedDeclarations = declarations ++ typedDeclarations state
-    , errors = errors state
-    }
+  state {typedDeclarations = declarations ++ typedDeclarations state}
 
 addError :: CompileState -> CompileError -> CompileState
-addError state error =
-  CompileState
-    { typeLambdas = typeLambdas state
-    , typedDeclarations = typedDeclarations state
-    , errors = error : errors state
-    }
+addError state error = state {errors = error : errors state}
 
 addTypeLambda :: CompileState -> TypeLambda -> CompileState
-addTypeLambda state tl =
-  CompileState
-    { typeLambdas = tl : typeLambdas state
-    , typedDeclarations = typedDeclarations state
-    , errors = errors state
+addTypeLambda state tl = state {typeLambdas = tl : typeLambdas state}
+
+addTypeConstructors ::
+     CompileState -> TypeLambda -> [TypedConstructor] -> CompileState
+addTypeConstructors state tl constructors =
+  state
+    { typeConstructors =
+        Map.insertWith (++) tl constructors (typeConstructors state)
     }
 
 checkModule :: Module -> Either (NonEmpty CompileError) TypedModule
 checkModule (Module topLevels) =
   let initialState :: CompileState
       initialState =
-        (CompileState {typeLambdas = [], errors = [], typedDeclarations = []})
+        (CompileState
+           { typeLambdas = []
+           , errors = []
+           , typedDeclarations = []
+           , typeConstructors = Map.empty
+           })
       compileState :: CompileState
       compileState = foldl checkTopLevel initialState topLevels
       e :: Maybe (NonEmpty CompileError)
@@ -139,9 +155,12 @@ checkTopLevel :: CompileState -> TopLevel -> CompileState
 checkTopLevel state topLevel =
   case topLevel of
     DataType (ADT name generics constructors) ->
-      addDeclarations
-        (addTypeLambda state tl)
-        (makeDeclaration <$> NE.toList constructors)
+      addTypeConstructors
+        (addDeclarations
+           (addTypeLambda state tl)
+           (makeDeclaration <$> NE.toList constructors))
+        tl
+        (makeTypeConstructor <$> NE.toList constructors)
       where tl = TypeLambda name
             returnType = Custom name (Generic <$> generics)
             makeDeclaration (Constructor name types) =
@@ -150,6 +169,8 @@ checkTopLevel state topLevel =
                 []
                 (maybe returnType constructorType types)
                 (TypeChecker.Number 0)
+            makeTypeConstructor (Constructor name types) =
+              TypedConstructor name (maybe [] constructorTypes types)
             constructorType t = foldr Lambda returnType (constructorTypes t)
             constructorTypes types =
               case types of
@@ -169,6 +190,7 @@ typeEq a b =
   case (a, b) of
     (Custom name (_:__), Applied (TypeLambda name') _) -> name == name'
     (Applied (TypeLambda name') _, Custom name (_:__)) -> name == name'
+    (Custom name _, Custom name' _) -> name == name' -- TODO - now this is a hack
     _ -> a == b
 
 checkDeclaration ::
@@ -178,13 +200,20 @@ checkDeclaration state declaration = do
   annotationTypes <- inferDeclarationType (typeLambdas state) declaration
   let argsWithTypes = zip args (NE.toList annotationTypes)
   let locals = makeDeclaration <$> argsWithTypes
-  let expectedReturnType =
-        (case (NE.drop (length args) annotationTypes) of
-           (x:xs) -> Right $ collapseTypes (x :| xs)
-           _ -> Left $ CompileError (DeclarationError declaration) "Not enough args")
-  let actualReturnType = inferType (addDeclarations state locals) expr
-  let typeChecks (a, returnType) =
-        if typeOf a `typeEq` returnType
+  expectedReturnType <-
+    (case (NE.drop (length args) annotationTypes) of
+       (x:xs) -> Right $ collapseTypes (x :| xs)
+       _ -> Left $ CompileError (DeclarationError declaration) "Not enough args")
+  let typedDeclaration =
+        TypedDeclaration
+          name
+          argsWithTypes
+          (foldr1 Lambda annotationTypes)
+          (TypeChecker.Number 0)
+  let actualReturnType =
+        inferType (addDeclarations state (typedDeclaration : locals)) expr
+  let typeChecks a =
+        if typeOf a `typeEq` expectedReturnType
           then Right $
                TypedDeclaration
                  name
@@ -195,10 +224,10 @@ checkDeclaration state declaration = do
                CompileError
                  (DeclarationError declaration)
                  ("Expected " <> s name <> " to return type " <>
-                  printType returnType <>
+                  printType expectedReturnType <>
                   ", but instead got type " <>
                   printType (typeOf a))
-  (,) <$> actualReturnType <*> expectedReturnType >>= typeChecks
+  actualReturnType >>= typeChecks
   where
     makeDeclaration (i, t) =
       TypedDeclaration i [] t (TypeChecker.Identifier t i)
@@ -237,15 +266,22 @@ inferType state expr =
     Language.Apply a b ->
       let typedExprs = (,) <$> inferType state a <*> inferType state b
           inferApplication (a, b) =
-            case (typeOf a, typeOf b) of
+            case (typeOf a, typeOf b) -- to anyone who sees this, I sincerely apologize
+                  of
               (Lambda (Generic _) (Custom n x), b')
                 | not . null $ x ->
                   Right $ TypeChecker.Apply (Applied (TypeLambda n) b') a b
               (Lambda (Generic n) r, b') ->
                 Right (TypeChecker.Apply (replaceGenerics n b' r) a b)
-              (Lambda (Applied tl (Generic n)) r, (Applied tl' t))
+              (Lambda (Applied tl (Generic n)) r, Applied tl' t)
                 | tl == tl' ->
                   Right (TypeChecker.Apply (replaceGenerics n t r) a b)
+              (Lambda (Lambda (Generic n) (Generic n')) r, Lambda a' b') ->
+                Right
+                  (TypeChecker.Apply
+                     (replaceGenerics n' b' (replaceGenerics n a' r))
+                     a
+                     b)
               (Lambda x r, b') ->
                 if x `typeEq` b'
                   then Right (TypeChecker.Apply r a b)
@@ -280,15 +316,16 @@ inferType state expr =
        in types >>= checkInfix
     Language.Case value branches -> do
       v <- inferType state value
-      b <- sequence $ inferBranch <$> branches
+      b <- sequence $ inferBranch v <$> branches
       allBranchesHaveSameType v b
-      where inferBranch (a, b) = do
-              a' <- inferType state a
-              b' <- inferType state b
+      where inferBranch v (a, b) = do
+              a' <- inferArgumentType state (typeOf v) a compileError
+              let argDeclarations = declarationsFromTypedArgument a'
+              b' <- inferType (addDeclarations state argDeclarations) b
               return (a', b')
             allBranchesHaveSameType ::
                  TypedExpression
-              -> NonEmpty (TypedExpression, TypedExpression)
+              -> NonEmpty (TypedArgument, TypedExpression)
               -> Either CompileError TypedExpression
             allBranchesHaveSameType value types =
               case NE.groupWith (typeOf . snd) types of
@@ -332,6 +369,57 @@ inferType state expr =
     compileError = CompileError $ ExpressionError expr
     declarations = typedDeclarations state
 
+inferArgumentType ::
+     CompileState
+  -> Type
+  -> Argument
+  -> (Text -> CompileError)
+  -> Either CompileError TypedArgument
+inferArgumentType state valueType arg err =
+  case arg of
+    AIdentifier i -> Right $ TAIdentifier valueType i
+    ANumberLiteral i ->
+      if valueType == Num
+        then Right $ TANumberLiteral i
+        else Left $
+             err $
+             "case branch is type Int when value is type " <>
+             printType valueType
+    ADeconstruction name args ->
+      let typeLambdaName =
+            case valueType of
+              Applied (TypeLambda i) _ -> Just i
+              Custom i _ -> Just i
+              _ -> Nothing
+          typeLambda =
+            typeLambdaName >>=
+            (\tlName ->
+               find (\(TypeLambda name') -> tlName == name') (typeLambdas state))
+          constructorsForValue =
+            typeLambda >>= (flip Map.lookup) (typeConstructors state)
+          matchingConstructor =
+            find (m name) (fromMaybe [] constructorsForValue)
+          m name (TypedConstructor name' _) = name == name'
+          deconstructionFields fields =
+            sequence $
+            (\(a, t) -> inferArgumentType state t a err) <$> zip args fields
+       in case matchingConstructor of
+            Just (TypedConstructor name fields) ->
+              if length args == length fields
+                then TADeconstruction name <$> deconstructionFields fields
+                else Left $
+                     err $
+                     "Expected " <> s name <> " to have " <>
+                     showT (length fields) <>
+                     " fields, instead found " <>
+                     showT (length args)
+            Nothing ->
+              Left $
+              err $
+              "no constructor named \"" <> s name <> "\" for " <>
+              printType valueType <>
+              " in scope."
+
 inferDeclarationType ::
      [TypeLambda] -> Declaration -> Either CompileError (NE.NonEmpty Type)
 inferDeclarationType typeLambdas declaration =
@@ -361,6 +449,13 @@ inferDeclarationType typeLambdas declaration =
 
 collapseTypes :: NE.NonEmpty Type -> Type
 collapseTypes = foldr1 Lambda
+
+declarationsFromTypedArgument :: TypedArgument -> [TypedDeclaration]
+declarationsFromTypedArgument ta =
+  case ta of
+    TAIdentifier t n -> [TypedDeclaration n [] t (TypeChecker.Number 0)]
+    TANumberLiteral _ -> []
+    TADeconstruction _ args -> concatMap declarationsFromTypedArgument args
 
 stringToType :: Ident -> Type
 stringToType ident =

@@ -40,4 +40,4 @@ wasmSpecs :: SpecWith ()
 wasmSpecs =
   describe "wasm code generation" $
   it "checks valid expressions" $
-  withMaxSuccess 5000 (property propCodeThatTypeChecksShouldCompile)
+  withMaxSuccess 500 (property propCodeThatTypeChecksShouldCompile)

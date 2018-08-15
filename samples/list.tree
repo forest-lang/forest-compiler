@@ -1,0 +1,33 @@
+
+data List a
+  = Cons a (List a)
+  | Empty
+
+fib :: List Int
+fib = Cons 1 (Cons 1 (Cons 2 (Cons 3 (Cons 5 (Cons 8 Empty)))))
+
+map :: (a -> b) -> List a -> List b
+map f list =
+  case list of
+    Cons x xs -> Cons (f x) (map f xs)
+    Empty -> Empty
+
+doubledFib :: List Int
+doubledFib =
+  let
+    double :: Int -> Int
+    double n = n * 2
+  in
+    map double fib
+
+foldl :: (a -> a -> a) -> a -> List a -> a
+foldl f acc list =
+  case list of
+    Cons x xs -> foldl f (f acc x) xs
+    Empty -> acc
+
+add :: Int -> Int -> Int
+add a b = a + b
+
+sum :: List Int -> Int
+sum = foldl add 0

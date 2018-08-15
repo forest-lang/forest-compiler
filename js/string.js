@@ -37,7 +37,7 @@ WebAssembly.instantiate(bytes).then(m => {
 
   const name = process.argv[2];
 
-  const address = exports.main(string(name)));
+  const address = exports.main(string(name));
 
   console.log(readString(exports, address));
 });

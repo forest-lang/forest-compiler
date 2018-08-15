@@ -229,19 +229,26 @@ compileExpression m fexpr =
             (Just (constructCase caseExpr (NE.fromList xs)))
     patternsToWasm ::
          Module
-      -> NE.NonEmpty (T.TypedExpression, T.TypedExpression)
+      -> NE.NonEmpty (T.TypedArgument, T.TypedExpression)
       -> (Module, NonEmpty (Expression, Expression))
     patternsToWasm m patterns =
       let compilePattern ::
                (Module, [(Expression, Expression)])
-            -> (T.TypedExpression, T.TypedExpression)
+            -> (T.TypedArgument, T.TypedExpression)
             -> (Module, [(Expression, Expression)])
           compilePattern (m', exprs) (a, b) =
-            let (m'', aExpr) = compileExpression m' a
+            let (m'', aExpr) = compileArgument m' a
                 (m''', bExpr) = compileExpression m'' b
              in (m''', exprs <> [(aExpr, bExpr)])
           (m', exprs) = foldl compilePattern (m, []) patterns
        in (m', NE.fromList exprs)
+
+compileArgument :: Module -> TypedArgument -> (Module, Expression)
+compileArgument m arg =
+  case arg of
+    T.TAIdentifier _ i -> (m, GetLocal i)
+    T.TANumberLiteral n -> (m, Const n)
+    _ -> undefined
 
 eq32 :: F.Ident
 eq32 = F.Ident $ F.NonEmptyString 'i' "32.eq"
