@@ -1,7 +1,6 @@
 add :: Int -> Int -> Int
 add a b = a + b
 
-
 data List a
   = Cons a (List a)
   | Empty
