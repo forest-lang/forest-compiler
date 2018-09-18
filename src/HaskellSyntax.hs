@@ -9,6 +9,7 @@ module HaskellSyntax
   , s
   , expr
   , annotation
+  , pType
   , dataType
   , operatorToString
   , printDeclaration
@@ -130,7 +131,8 @@ pCase = L.indentBlock scn p
       branchExpr <- expr
       return (pattern', branchExpr)
     caseArgument = sc *> (deconstruction <|> identifier <|> numberLiteral)
-    deconstruction = ADeconstruction <$> pCapitalizedIdent <*> many (try caseArgument)
+    deconstruction =
+      ADeconstruction <$> pCapitalizedIdent <*> many (try caseArgument)
     identifier = AIdentifier <$> pLowerCaseIdent
     numberLiteral = ANumberLiteral <$> L.decimal
 
@@ -209,11 +211,16 @@ annotationTypes = do
   return (NE.fromList $ firstType : types)
 
 pType :: Parser AnnotationType
-pType =
+pType
+ = do
   let typeInParens = parens' (Parenthesized <$> annotationTypes)
-      concreteType = sc *> (Concrete <$> pIdent)
-      typeApplication t = (TypeApplication t <$> try (sc *> pType)) <|> return t
-   in typeInParens <|> concreteType >>= typeApplication
+      concreteType = (Concrete <$> pIdent)
+  parts <- some (try (sc *> (typeInParens <|> concreteType)))
+  return $
+    case parts of
+      [] -> error "well this can't rightly happen"
+      [x] -> x
+      xs -> foldl1 TypeApplication xs
 
 maybeParse :: Parser a -> Parser (Maybe a)
 maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack

@@ -35,4 +35,4 @@ test2 :: Maybe Int -> Int
 test2 m = withDefault 5 m
 
 test3 :: Int
-test3 = test2 (Just 10)
+test3 = test2 (Nothing)
