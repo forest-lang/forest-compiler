@@ -185,13 +185,52 @@ checkTopLevel state topLevel =
             Right t -> addDeclarations state [t]
             Left e -> addError state e
 
+newtype Constraints =
+  Constraints (Map Ident Type)
+
 typeEq :: Type -> Type -> Bool
 typeEq a b =
+  case typeConstraints a b of
+    Just _ -> True
+    _ -> False
+
+mergePossibleContraints :: [Maybe Constraints] -> Maybe Constraints
+mergePossibleContraints mConstraints =
+  case mConstraints of
+    [] -> Just (Constraints Map.empty)
+    (x:xs) ->
+      case x of
+        Nothing -> Nothing
+        Just constraints ->
+          mergeConstraints constraints <$> mergePossibleContraints xs
+
+mergeConstraints :: Constraints -> Constraints -> Constraints
+mergeConstraints (Constraints a) (Constraints b) = Constraints (Map.union a b) -- TODO handle clashes
+
+typeConstraints :: Type -> Type -> Maybe Constraints
+typeConstraints a b =
   case (a, b) of
-    (Custom name (_:__), Applied (TypeLambda name') _) -> name == name'
-    (Applied (TypeLambda name') _, Custom name (_:__)) -> name == name'
-    (Custom name _, Custom name' _) -> name == name' -- TODO - now this is a hack
-    _ -> a == b
+    (Generic a', _) -> Just (Constraints (Map.insert a' b Map.empty))
+    (_, Generic b') -> Just (Constraints (Map.insert b' a Map.empty))
+    (Custom name types, Custom name' types')
+      | name == name' ->
+        mergePossibleContraints $ uncurry typeConstraints <$> zip types types'
+    (Applied (TypeLambda name) t, Custom name' (t':_))
+    -- TODO, should probably handle remaining custom types?
+     ->
+      if name == name'
+        then typeConstraints t t'
+        else Nothing
+    (Custom name' (t':_), Applied (TypeLambda name) t) ->
+      if name == name'
+        then typeConstraints t t'
+        else Nothing
+    (Lambda a b, Lambda x y) ->
+      mergePossibleContraints [typeConstraints a x, typeConstraints b y]
+    (a', b') ->
+      if a' == b'
+        then Just (Constraints Map.empty)
+        else Nothing
 
 checkDeclaration ::
      CompileState -> Declaration -> Either CompileError TypedDeclaration
@@ -213,7 +252,7 @@ checkDeclaration state declaration = do
   let actualReturnType =
         inferType (addDeclarations state (typedDeclaration : locals)) expr
   let typeChecks a =
-        if typeOf a `typeEq` expectedReturnType
+        if typeOf a `typeEq` expectedReturnType -- TODO use typeConstraints here
           then Right $
                TypedDeclaration
                  name
@@ -266,30 +305,17 @@ inferType state expr =
     Language.Apply a b ->
       let typedExprs = (,) <$> inferType state a <*> inferType state b
           inferApplication (a, b) =
-            case (typeOf a, typeOf b) -- to anyone who sees this, I sincerely apologize
-                  of
-              (Lambda (Generic _) (Custom n x), b')
-                | not . null $ x ->
-                  Right $ TypeChecker.Apply (Applied (TypeLambda n) b') a b
-              (Lambda (Generic n) r, b') ->
-                Right (TypeChecker.Apply (replaceGenerics n b' r) a b)
-              (Lambda (Applied tl (Generic n)) r, Applied tl' t)
-                | tl == tl' ->
-                  Right (TypeChecker.Apply (replaceGenerics n t r) a b)
-              (Lambda (Lambda (Generic n) (Generic n')) r, Lambda a' b') ->
-                Right
-                  (TypeChecker.Apply
-                     (replaceGenerics n' b' (replaceGenerics n a' r))
-                     a
-                     b)
+            case (typeOf a, typeOf b) of
               (Lambda x r, b') ->
-                if x `typeEq` b'
-                  then Right (TypeChecker.Apply r a b)
-                  else Left $
-                       compileError
-                         ("Function expected argument of type " <> printType x <>
-                          ", but instead got argument of type " <>
-                          printType b')
+                case typeConstraints x b' of
+                  Just constraints ->
+                    Right (TypeChecker.Apply (replaceGenerics constraints r) a b)
+                  Nothing ->
+                    Left $
+                    compileError
+                      ("Function expected argument of type " <> printType x <>
+                       ", but instead got argument of type " <>
+                       printType b')
               _ ->
                 Left $
                 compileError $
@@ -489,8 +515,12 @@ mapType f t =
     Generic _ -> f t
     Custom name types -> Custom name (mapType f <$> types)
 
-replaceGenerics :: Ident -> Type -> Type -> Type
-replaceGenerics name newType =
+replaceGenerics :: Constraints -> Type -> Type
+replaceGenerics (Constraints constraints) t =
+  Map.foldrWithKey replaceGeneric t constraints
+
+replaceGeneric :: Ident -> Type -> Type -> Type
+replaceGeneric name newType =
   mapType
     (\case
        Generic n

@@ -11,25 +11,6 @@ foo n =
 main :: Maybe Int
 main = foo 5
 
-data List a
-  = Cons a (List a)
-  | Empty
-
-foo :: List Int
-foo = Cons 1 (Cons 2 Empty)
-
-data NonEmptyList a
-  = NonEmptyList a (List a)
-
-main :: NonEmptyList String
-main = NonEmptyList "foo" (Cons "bar" Empty)
-
-fromList :: List a -> Maybe (NonEmptyList a)
-fromList l =
-  case l of
-    Empty -> Nothing
-    Cons x xs -> Just (NonEmptyList x xs)
-
 map :: (a -> b) -> Maybe a -> Maybe b
 map f m =
   case m of
@@ -41,3 +22,17 @@ withDefault d m =
   case m of
     Just a -> a
     Nothing -> d
+
+test :: Maybe Int
+test =
+  let
+    addOne :: Int -> Int
+    addOne n = n + 1
+  in
+    map addOne (Just 1)
+
+test2 :: Maybe Int -> Int
+test2 m = withDefault 5 m
+
+test3 :: Int
+test3 = test2 (Just 10)
