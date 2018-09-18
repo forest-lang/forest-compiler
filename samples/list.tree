@@ -1,3 +1,6 @@
+add :: Int -> Int -> Int
+add a b = a + b
+
 
 data List a
   = Cons a (List a)
@@ -11,6 +14,9 @@ map f list =
   case list of
     Cons x xs -> Cons (f x) (map f xs)
     Empty -> Empty
+
+test :: List Int
+test = map (add 5) (Cons 1 Empty)
 
 doubledFib :: List Int
 doubledFib =
@@ -26,8 +32,22 @@ foldl f acc list =
     Cons x xs -> foldl f (f acc x) xs
     Empty -> acc
 
-add :: Int -> Int -> Int
-add a b = a + b
-
 sum :: List Int -> Int
 sum = foldl add 0
+
+data NonEmptyList a
+  = NonEmptyList a (List a)
+
+main :: NonEmptyList String
+main = NonEmptyList "foo" (Cons "bar" Empty)
+
+data Maybe a
+  = Just a
+  | Nothing
+
+fromList :: List a -> Maybe (NonEmptyList a)
+fromList l =
+  case l of
+    Empty -> Nothing
+    Cons x xs -> Just (NonEmptyList x xs)
+
