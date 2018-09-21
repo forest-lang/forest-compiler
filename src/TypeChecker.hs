@@ -52,6 +52,7 @@ data InvalidConstruct
 data CompileState = CompileState
   { errors :: [CompileError]
   , typeLambdas :: [TypeLambda]
+  , types :: Map Ident Type
   , typedDeclarations :: [TypedDeclaration]
   , typeConstructors :: Map TypeLambda [TypedConstructor]
   } deriving (Eq, Show)
@@ -66,11 +67,10 @@ data Type
   | Str
   | Lambda Type
            Type
-  | Applied TypeLambda
+  | Applied Type
             Type
   | Generic Ident
-  | Custom Ident
-           [Type]
+  | TL TypeLambda
   deriving (Eq, Show, Ord)
 
 newtype TypeLambda =
@@ -123,7 +123,11 @@ addError :: CompileState -> CompileError -> CompileState
 addError state error = state {errors = error : errors state}
 
 addTypeLambda :: CompileState -> TypeLambda -> CompileState
-addTypeLambda state tl = state {typeLambdas = tl : typeLambdas state}
+addTypeLambda state (TypeLambda name) =
+  state
+    { typeLambdas = TypeLambda name : typeLambdas state
+    , types = Map.insert name (TL (TypeLambda name)) (types state)
+    }
 
 addTypeConstructors ::
      CompileState -> TypeLambda -> [TypedConstructor] -> CompileState
@@ -132,6 +136,9 @@ addTypeConstructors state tl constructors =
     { typeConstructors =
         Map.insertWith (++) tl constructors (typeConstructors state)
     }
+
+defaultTypes :: Map Ident Type
+defaultTypes = Map.fromList [(ne "Int", Num), (ne "String", Str)]
 
 checkModule :: Module -> Either (NonEmpty CompileError) TypedModule
 checkModule (Module topLevels) =
@@ -142,6 +149,7 @@ checkModule (Module topLevels) =
            , errors = []
            , typedDeclarations = []
            , typeConstructors = Map.empty
+           , types = defaultTypes
            })
       compileState :: CompileState
       compileState = foldl checkTopLevel initialState topLevels
@@ -162,7 +170,7 @@ checkTopLevel state topLevel =
         tl
         (makeTypeConstructor <$> NE.toList constructors)
       where tl = TypeLambda name
-            returnType = Custom name (Generic <$> generics)
+            returnType = foldl Applied (TL tl) (Generic <$> generics)
             makeDeclaration (Constructor name types) =
               TypedDeclaration
                 name
@@ -172,11 +180,14 @@ checkTopLevel state topLevel =
             makeTypeConstructor (Constructor name types) =
               TypedConstructor name (maybe [] constructorTypes types)
             constructorType t = foldr Lambda returnType (constructorTypes t)
-            constructorTypes types =
-              case types of
-                CTConcrete i -> [stringToType i]
+            constructorTypes ts =
+              case ts of
+                CTConcrete i ->
+                  case stringToType (types state) undefined i of
+                    Right x -> [x]
+                    Left _ -> []
                 CTParenthesized (CTApplied (CTConcrete a) (CTConcrete b)) ->
-                  [Applied (TypeLambda a) (Generic b)]
+                  [Applied (TL (TypeLambda a)) (Generic b)]
                 CTParenthesized t -> constructorTypes t
                 CTApplied a b -> constructorTypes a ++ constructorTypes b
     Function declaration ->
@@ -198,11 +209,9 @@ mergePossibleContraints :: [Maybe Constraints] -> Maybe Constraints
 mergePossibleContraints mConstraints =
   case mConstraints of
     [] -> Just (Constraints Map.empty)
-    (x:xs) ->
-      case x of
-        Nothing -> Nothing
-        Just constraints ->
-          mergeConstraints constraints <$> mergePossibleContraints xs
+    (Nothing:_) -> Nothing
+    (Just constraints:xs) ->
+      mergeConstraints constraints <$> mergePossibleContraints xs
 
 mergeConstraints :: Constraints -> Constraints -> Constraints
 mergeConstraints (Constraints a) (Constraints b) = Constraints (Map.union a b) -- TODO handle clashes
@@ -212,21 +221,12 @@ typeConstraints a b =
   case (a, b) of
     (Generic a', _) -> Just (Constraints (Map.insert a' b Map.empty))
     (_, Generic b') -> Just (Constraints (Map.insert b' a Map.empty))
-    (Custom name types, Custom name' types')
-      | name == name' ->
-        mergePossibleContraints $ uncurry typeConstraints <$> zip types types'
-    (Applied (TypeLambda name) t, Custom name' (t':_))
-    -- TODO, should probably handle remaining custom types?
-     ->
-      if name == name'
-        then typeConstraints t t'
-        else Nothing
-    (Custom name' (t':_), Applied (TypeLambda name) t) ->
-      if name == name'
-        then typeConstraints t t'
-        else Nothing
+    (Applied a b, Applied a' b') ->
+      mergePossibleContraints [typeConstraints a a', typeConstraints b b']
     (Lambda a b, Lambda x y) ->
       mergePossibleContraints [typeConstraints a x, typeConstraints b y]
+    (Applied _ _, _) ->
+      error $ "Applied typeConstraints " ++ show a ++ " " ++ show b
     (a', b') ->
       if a' == b'
         then Just (Constraints Map.empty)
@@ -236,7 +236,7 @@ checkDeclaration ::
      CompileState -> Declaration -> Either CompileError TypedDeclaration
 checkDeclaration state declaration = do
   let (Declaration _ name args expr) = declaration
-  annotationTypes <- inferDeclarationType (typeLambdas state) declaration
+  annotationTypes <- inferDeclarationType state declaration
   let argsWithTypes = zip args (NE.toList annotationTypes)
   let locals = makeDeclaration <$> argsWithTypes
   expectedReturnType <-
@@ -306,10 +306,20 @@ inferType state expr =
       let typedExprs = (,) <$> inferType state a <*> inferType state b
           inferApplication (a, b) =
             case (typeOf a, typeOf b) of
+              (Applied _ generic, b') ->
+                case typeConstraints generic b' of
+                  Just constraints ->
+                    Right
+                      (TypeChecker.Apply
+                         (replaceGenerics constraints (typeOf a))
+                         a
+                         b)
+                  Nothing -> error "what"
               (Lambda x r, b') ->
                 case typeConstraints x b' of
                   Just constraints ->
-                    Right (TypeChecker.Apply (replaceGenerics constraints r) a b)
+                    Right
+                      (TypeChecker.Apply (replaceGenerics constraints r) a b)
                   Nothing ->
                     Left $
                     compileError
@@ -319,9 +329,9 @@ inferType state expr =
               _ ->
                 Left $
                 compileError $
-                "Tried to apply a value of type " <> printType (typeOf a) <>
+                "Tried to apply a value of type " <> showT (typeOf a) <>
                 " to a value of type " <>
-                printType (typeOf b)
+                showT (typeOf b)
        in typedExprs >>= inferApplication
     Language.Infix op a b ->
       let expected =
@@ -359,6 +369,8 @@ inferType state expr =
                   Right
                     (TypeChecker.Case (typeOf . snd $ NE.head x) value types)
                 types' ->
+                    -- TODO - there is a bug where we consider Result a b to be equal to Result c d,
+                    --        failing to recognize the importance of whether a and b have been bound in the signature
                   if all
                        (\case
                           (x:y:_) -> x `typeEq` y
@@ -412,13 +424,14 @@ inferArgumentType state valueType arg err =
              "case branch is type Int when value is type " <>
              printType valueType
     ADeconstruction name args ->
-      let typeLambdaName =
-            case valueType of
-              Applied (TypeLambda i) _ -> Just i
-              Custom i _ -> Just i
+      let typeLambdaName v =
+            case v of
+              TL (TypeLambda i) -> Just i
+              Applied (TL (TypeLambda i)) _ -> Just i
+              Applied a _ -> typeLambdaName a
               _ -> Nothing
           typeLambda =
-            typeLambdaName >>=
+            typeLambdaName valueType >>=
             (\tlName ->
                find (\(TypeLambda name') -> tlName == name') (typeLambdas state))
           constructorsForValue =
@@ -444,11 +457,11 @@ inferArgumentType state valueType arg err =
               err $
               "no constructor named \"" <> s name <> "\" for " <>
               printType valueType <>
-              " in scope."
+              " in scope." <> showT (typeLambda )
 
 inferDeclarationType ::
-     [TypeLambda] -> Declaration -> Either CompileError (NE.NonEmpty Type)
-inferDeclarationType typeLambdas declaration =
+     CompileState -> Declaration -> Either CompileError (NE.NonEmpty Type)
+inferDeclarationType state declaration =
   case annotation of
     Just (Annotation _ types) -> sequence $ annotationTypeToType <$> types
     Nothing -> Left $ compileError "For now, annotations are required."
@@ -457,18 +470,24 @@ inferDeclarationType typeLambdas declaration =
     compileError = CompileError $ DeclarationError declaration
     annotationTypeToType t =
       case t of
-        Concrete i -> Right $ stringToType i
+        Concrete i -> stringToType (types state) compileError i
         Parenthesized types -> reduceTypes types
-        TypeApplication a b ->
+        TypeApplication a b -> inferTypeApplication a b
+      where
+        m name (TypeLambda name') = name == name'
+        inferTypeApplication ::
+             AnnotationType -> AnnotationType -> Either CompileError Type
+        inferTypeApplication a b =
           case a of
             Concrete i ->
-              case find (m i) typeLambdas of
-                Just tl -> Applied tl <$> annotationTypeToType b
+              case find (m i) (typeLambdas state) of
+                Just tl -> Applied (TL tl) <$> annotationTypeToType b
                 Nothing ->
                   Left $
                   compileError $ "Could not find type lambda: " <> idToString i
-              where m name (TypeLambda name') = name == name'
-            _ -> error "nah"
+            Parenthesized a' -> Applied <$> reduceTypes a' <*> annotationTypeToType b
+            TypeApplication a' b' ->
+              Applied <$> inferTypeApplication a' b' <*> annotationTypeToType b
     reduceTypes :: NE.NonEmpty AnnotationType -> Either CompileError Type
     reduceTypes types =
       collapseTypes <$> sequence (annotationTypeToType <$> types)
@@ -483,14 +502,20 @@ declarationsFromTypedArgument ta =
     TANumberLiteral _ -> []
     TADeconstruction _ args -> concatMap declarationsFromTypedArgument args
 
-stringToType :: Ident -> Type
-stringToType ident =
-  case idToString ident of
-    "String" -> Str
-    "Int" -> Num
-    i
-      | i == T.toLower i -> Generic ident
-    _ -> Custom ident []
+stringToType ::
+     Map Ident Type
+  -> (Text -> CompileError)
+  -> Ident
+  -> Either CompileError Type
+stringToType types compileError ident =
+  if T.toLower i == i
+    then Right $ Generic ident
+    else case Map.lookup ident types of
+           Just t -> Right t
+           Nothing ->
+             Left $ compileError $ "Could not find type " <> s ident <> "."
+  where
+    i = s ident
 
 printType :: Type -> Text
 printType t =
@@ -498,9 +523,9 @@ printType t =
     Str -> "String"
     Num -> "Int"
     Lambda a r -> printType a <> " -> " <> printType r
-    Applied (TypeLambda name) b -> idToString name <> " " <> printType b
+    Applied a b -> printType a <> " " <> printType b
     Generic n -> idToString n
-    Custom n ts -> T.intercalate " " $ idToString n : (printType <$> ts)
+    TL (TypeLambda typeLambda) -> idToString typeLambda
 
 printSignature :: [Type] -> Text
 printSignature types = T.intercalate " -> " (printType <$> types)
@@ -513,7 +538,7 @@ mapType f t =
     Lambda a b -> f (Lambda (mapType f a) (mapType f b))
     Applied tl t -> f (Applied tl (mapType f t))
     Generic _ -> f t
-    Custom name types -> Custom name (mapType f <$> types)
+    TL _ -> f t
 
 replaceGenerics :: Constraints -> Type -> Type
 replaceGenerics (Constraints constraints) t =
@@ -526,3 +551,6 @@ replaceGeneric name newType =
        Generic n
          | n == name -> newType
        other -> other)
+
+ne :: Text -> Ident
+ne s = Ident $ NonEmptyString (T.head s) (T.tail s)
