@@ -39,6 +39,7 @@ executable forest
                      , megaparsec
                      , safe
                      , text
+                     , raw-strings-qq
   default-language:    Haskell2010
 
 test-suite forest-compiler-test
