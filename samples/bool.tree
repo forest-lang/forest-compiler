@@ -1,0 +1,25 @@
+
+data Bool
+  = True
+  | False
+
+and :: Bool -> Bool -> Bool
+and a b =
+  case a of
+    True -> b
+    False -> False
+
+or :: Bool -> Bool -> Bool
+or a b =
+  case a of
+    True -> True
+    False -> b
+
+not :: Bool -> Bool
+not a =
+  case a of
+    True -> False
+    False -> True
+
+equals :: Bool -> Bool -> Bool
+equals a b = or (and a b) (and (not a) (not b))
