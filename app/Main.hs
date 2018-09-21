@@ -1,5 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module Main where
 
@@ -11,10 +12,24 @@ import qualified Data.Text.IO as TIO
 import Safe
 import System.Environment
 import Text.Megaparsec.Error
+import Text.RawString.QQ
+import System.Exit
 
 import Compiler
 import HaskellSyntax
 import TypeChecker
+
+usage :: Text
+usage = strip
+  [r|
+usage: forest command path
+
+commands:
+
+  build - typechecks and compiles the given file to Wast
+  format - format and print the given file
+  check - typechecks the given file
+|]
 
 main :: IO ()
 main = do
@@ -22,31 +37,33 @@ main = do
   case args of
     ["build", filename] -> do
       contents <- TIO.readFile filename
-      TIO.putStrLn $
-        case compile contents of
-          Success w -> w
-          ParseErr err -> reportParseError filename contents err
-          CompileErr errors ->
-            (intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
-            "\n"
+      let (text, exitCode) =
+            case compile contents of
+              Success w -> (w, ExitSuccess)
+              ParseErr err -> (reportParseError filename contents err, ExitFailure 1)
+              CompileErr errors ->
+                ((intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
+                "\n", ExitFailure 2)
+      TIO.putStrLn text >> exitWith exitCode
     ["format", filename] -> build format filename
     ["check", filename] -> do
       contents <- TIO.readFile filename
-      TIO.putStrLn $
-        case check contents of
-          Success _ -> "🎉  no errors found 🎉"
-          ParseErr err -> reportParseError filename contents err
-          CompileErr errors ->
-            (intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
-            "\n"
-    _ -> TIO.putStrLn "please provide a file to compile"
+      let (text, exitCode) =
+            case check contents of
+              Success _ -> ("🎉  no errors found 🎉", ExitSuccess)
+              ParseErr err -> (reportParseError filename contents err, ExitFailure 1)
+              CompileErr errors ->
+                ((intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
+                "\n", ExitFailure 2)
+      TIO.putStrLn text >> exitWith exitCode
+    _ -> TIO.putStrLn usage >> exitFailure
   where
     build :: (Text -> Either ParseError' Text) -> String -> IO ()
     build f filename = do
       contents <- TIO.readFile filename
       case f contents of
         Right a -> TIO.putStrLn a
-        Left err -> TIO.putStrLn $ reportParseError filename contents err
+        Left err -> (TIO.putStrLn $ reportParseError filename contents err) >> exitWith (ExitFailure 1)
     printError (CompileError error message) =
       case error of
         ExpressionError expr ->
