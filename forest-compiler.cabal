@@ -20,6 +20,7 @@ library
                      , Wasm
                      , Compiler
                      , Language
+                     , Grammar
                      , TypeChecker
   build-depends:       base >= 4.7 && < 5
                      , megaparsec
@@ -28,6 +29,7 @@ library
                      , raw-strings-qq
                      , safe
                      , containers
+                     , parser-combinators
   default-language:    Haskell2010
 
 executable forest
