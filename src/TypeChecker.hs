@@ -198,6 +198,7 @@ checkTopLevel state topLevel =
 
 newtype Constraints =
   Constraints (Map Ident Type)
+  deriving (Eq, Show)
 
 typeEq :: Type -> Type -> Bool
 typeEq a b =
@@ -205,13 +206,13 @@ typeEq a b =
     Just _ -> True
     _ -> False
 
-mergePossibleContraints :: [Maybe Constraints] -> Maybe Constraints
-mergePossibleContraints mConstraints =
+mergePossibleConstraints :: [Maybe Constraints] -> Maybe Constraints
+mergePossibleConstraints mConstraints =
   case mConstraints of
     [] -> Just (Constraints Map.empty)
     (Nothing:_) -> Nothing
     (Just constraints:xs) ->
-      mergeConstraints constraints <$> mergePossibleContraints xs
+      mergeConstraints constraints <$> mergePossibleConstraints xs
 
 mergeConstraints :: Constraints -> Constraints -> Constraints
 mergeConstraints (Constraints a) (Constraints b) = Constraints (Map.union a b) -- TODO handle clashes
@@ -222,9 +223,9 @@ typeConstraints a b =
     (Generic a', _) -> Just (Constraints (Map.insert a' b Map.empty))
     (_, Generic b') -> Just (Constraints (Map.insert b' a Map.empty))
     (Applied a b, Applied a' b') ->
-      mergePossibleContraints [typeConstraints a a', typeConstraints b b']
+      mergePossibleConstraints [typeConstraints a a', typeConstraints b b']
     (Lambda a b, Lambda x y) ->
-      mergePossibleContraints [typeConstraints a x, typeConstraints b y]
+      mergePossibleConstraints [typeConstraints a x, typeConstraints b y]
     (Applied _ _, _) ->
       error $ "Applied typeConstraints " ++ show a ++ " " ++ show b
     (a', b') ->
@@ -329,9 +330,9 @@ inferType state expr =
               _ ->
                 Left $
                 compileError $
-                "Tried to apply a value of type " <> showT (typeOf a) <>
+                "Tried to apply a value of type " <> printType (typeOf a) <>
                 " to a value of type " <>
-                showT (typeOf b)
+                printType (typeOf b)
        in typedExprs >>= inferApplication
     Language.Infix op a b ->
       let expected =
