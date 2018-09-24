@@ -47,6 +47,6 @@ data Maybe a
 fromList :: List a -> Maybe (NonEmptyList a)
 fromList l =
   case l of
-    Empty -> Nothing
     Cons x xs -> Just (NonEmptyList x xs)
+    Empty -> Nothing
 
