@@ -217,17 +217,30 @@ mergePossibleConstraints mConstraints =
 mergeConstraints :: Constraints -> Constraints -> Constraints
 mergeConstraints (Constraints a) (Constraints b) = Constraints (Map.union a b) -- TODO handle clashes
 
+-- you can't treat type a like an int
+-- but you can call a function that accepts type a with an int,
+-- as long as a is replaced with int in the interpretation of the type of that function
+--
+-- the rules for application differ from return type checking
+--
+-- for application, if we have a lambda with a generic value, we should replace that generic with our concrete value on the right
+-- for return type checking, we need to be able to understand that we cannot coerce an "a" to a "b"
+-- but that we can coerce a "Nothing :: Maybe a" to "Just 5 :: Maybe Int"
+--
+-- this is possible because the type of Nothing is really forall a. :: Maybe a
+-- typeConstraints is currently used for both but that's a bad idea, it's only really good at application
 typeConstraints :: Type -> Type -> Maybe Constraints
 typeConstraints a b =
   case (a, b) of
     (Generic a', _) -> Just (Constraints (Map.insert a' b Map.empty))
-    (_, Generic b') -> Just (Constraints (Map.insert b' a Map.empty))
+    (Applied (TL a') t', Applied (TL b') (Generic g)) ->
+      if a' == b'
+        then Just (Constraints (Map.insert g t' Map.empty))
+        else Nothing
     (Applied a b, Applied a' b') ->
       mergePossibleConstraints [typeConstraints a a', typeConstraints b b']
     (Lambda a b, Lambda x y) ->
       mergePossibleConstraints [typeConstraints a x, typeConstraints b y]
-    (Applied _ _, _) ->
-      error $ "Applied typeConstraints " ++ show a ++ " " ++ show b
     (a', b') ->
       if a' == b'
         then Just (Constraints Map.empty)
@@ -307,15 +320,6 @@ inferType state expr =
       let typedExprs = (,) <$> inferType state a <*> inferType state b
           inferApplication (a, b) =
             case (typeOf a, typeOf b) of
-              (Applied _ generic, b') ->
-                case typeConstraints generic b' of
-                  Just constraints ->
-                    Right
-                      (TypeChecker.Apply
-                         (replaceGenerics constraints (typeOf a))
-                         a
-                         b)
-                  Nothing -> error "what"
               (Lambda x r, b') ->
                 case typeConstraints x b' of
                   Just constraints ->
@@ -369,12 +373,13 @@ inferType state expr =
                 [x] ->
                   Right
                     (TypeChecker.Case (typeOf . snd $ NE.head x) value types)
-                types' ->
+                types'
                     -- TODO - there is a bug where we consider Result a b to be equal to Result c d,
                     --        failing to recognize the importance of whether a and b have been bound in the signature
+                 ->
                   if all
                        (\case
-                          (x:y:_) -> x `typeEq` y
+                          (x:y:_) -> x `typeEq` y || y `typeEq` x
                           _ -> False)
                        (F.toList <$>
                         replicateM 2 (typeOf . snd . NE.head <$> types'))
@@ -436,7 +441,7 @@ inferArgumentType state valueType arg err =
             (\tlName ->
                find (\(TypeLambda name') -> tlName == name') (typeLambdas state))
           constructorsForValue =
-            typeLambda >>= (flip Map.lookup) (typeConstructors state)
+            typeLambda >>= flip Map.lookup (typeConstructors state)
           matchingConstructor =
             find (m name) (fromMaybe [] constructorsForValue)
           m name (TypedConstructor name' _) = name == name'
@@ -458,7 +463,8 @@ inferArgumentType state valueType arg err =
               err $
               "no constructor named \"" <> s name <> "\" for " <>
               printType valueType <>
-              " in scope." <> showT (typeLambda )
+              " in scope." <>
+              showT (typeLambda)
 
 inferDeclarationType ::
      CompileState -> Declaration -> Either CompileError (NE.NonEmpty Type)
@@ -486,7 +492,8 @@ inferDeclarationType state declaration =
                 Nothing ->
                   Left $
                   compileError $ "Could not find type lambda: " <> idToString i
-            Parenthesized a' -> Applied <$> reduceTypes a' <*> annotationTypeToType b
+            Parenthesized a' ->
+              Applied <$> reduceTypes a' <*> annotationTypeToType b
             TypeApplication a' b' ->
               Applied <$> inferTypeApplication a' b' <*> annotationTypeToType b
     reduceTypes :: NE.NonEmpty AnnotationType -> Either CompileError Type

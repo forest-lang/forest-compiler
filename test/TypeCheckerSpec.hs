@@ -171,6 +171,20 @@ withDefault d maybe =
     Nothing -> d
 |]
 
+disallowGenericCoercion :: Text
+disallowGenericCoercion =
+  [r|
+data List a
+  = Cons a (List a)
+  | Empty
+
+add :: Int -> Int -> Int
+add a b = a + b
+
+main :: a -> b -> Int
+main a b = add a 5
+|]
+
 messages :: Either (NonEmpty CompileError) () -> [Text]
 messages r =
   case r of
@@ -264,3 +278,19 @@ typeCheckerSpecs =
               Right m -> () <$ checkModule m
               Left err -> error $ "Failed to parse module: " ++ show err
        in checkResult `shouldBe` Right ()
+    describe "generics" $ do
+      it "disallows coercion of generic types" $
+        let moduleResult = parseModule disallowGenericCoercion
+            checkResult =
+              case moduleResult of
+                Right m -> () <$ checkModule m
+                Left err -> error $ "Failed to parse module: " ++ show err
+         in checkResult `shouldBe`
+            Left
+              (CompileError
+                 (ExpressionError
+                    (Language.Apply
+                       (Language.Identifier (Ident (NonEmptyString 'a' "dd")))
+                       (Language.Identifier (Ident (NonEmptyString 'a' "")))))
+                 "Function expected argument of type Int, but instead got argument of type a" :|
+               [])
