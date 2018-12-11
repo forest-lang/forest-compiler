@@ -7,4 +7,7 @@ test :: Maybe Int -> Int
 test m =
   case m of
     Just a -> a
-    Nothing -> 0
+    Nothing -> 5
+
+main :: Int
+main = test (Nothing)
