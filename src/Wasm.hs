@@ -248,7 +248,7 @@ compileArgument m arg =
   case arg of
     T.TAIdentifier _ i -> (m, GetLocal i)
     T.TANumberLiteral n -> (m, Const n)
-    _ -> undefined
+    T.TADeconstruction name _ -> (m, GetLocal name)
 
 eq32 :: F.Ident
 eq32 = F.Ident $ F.NonEmptyString 'i' "32.eq"
