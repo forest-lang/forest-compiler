@@ -216,7 +216,27 @@ compileExpression m fexpr =
           m' = addTopLevel m [Data address str]
           m'' = allocateBytes m' (Text.length str + 1)
        in (m'', Const address)
+    T.ADTConstruction tag args ->
+      ( m
+      , Sequence
+          (NE.fromList
+             ([ SetLocal
+                  (ident "address")
+                  (NamedCall (ident "malloc") [(Const $ (1 + length args) * 4)])
+              , Call
+                  (ident "i32.store")
+                  [(GetLocal (ident "address")), (Const tag)]
+              ] <>
+              (store <$> (zip [1..] args)) <>
+              [GetLocal (ident "address")])))
   where
+    store :: (Int, (F.Ident, T.Type)) -> Expression
+    store (offset, (i, _)) =
+        Call
+            (ident "i32.store")
+            [ (Call (ident "i32.add") [GetLocal (ident "address"), Const (offset * 4)])
+            , GetLocal i
+            ]
     constructCase ::
          Expression -> NE.NonEmpty (Expression, Expression) -> Expression
     constructCase caseExpr patterns =
@@ -348,3 +368,6 @@ printDeclaration (Declaration name args body) =
 
 printLocal :: Text -> Text
 printLocal name = "(local $" <> name <> " i32)"
+
+ident :: Text -> F.Ident
+ident t = F.Ident $ F.NonEmptyString (Text.head t) (Text.tail t)
