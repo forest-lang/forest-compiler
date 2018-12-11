@@ -105,6 +105,7 @@ data TypedExpression
         TypedExpression
   | BetweenParens TypedExpression
   | String' Text
+  | ADTConstruction Int [(Ident, Type)]
   deriving (Show, Eq, G.Generic)
 
 data TypedArgument
@@ -166,17 +167,17 @@ checkTopLevel state topLevel =
       addTypeConstructors
         (addDeclarations
            (addTypeLambda state tl)
-           (makeDeclaration <$> NE.toList constructors))
+           (makeDeclaration <$> (zip [0..] $ NE.toList constructors)))
         tl
         (makeTypeConstructor <$> NE.toList constructors)
       where tl = TypeLambda name
             returnType = foldl Applied (TL tl) (Generic <$> generics)
-            makeDeclaration (Constructor name types) =
+            makeDeclaration (tag, (Constructor name types)) =
               TypedDeclaration
                 name
-                []
+                (maybe [] constructorTypesToArgList types)
                 (maybe returnType constructorType types)
-                (TypeChecker.Number 0)
+                (TypeChecker.ADTConstruction tag (maybe [] constructorTypesToArgList types))
             makeTypeConstructor (Constructor name types) =
               TypedConstructor name (maybe [] constructorTypes types)
             constructorType t = foldr Lambda returnType (constructorTypes t)
@@ -195,6 +196,12 @@ checkTopLevel state topLevel =
        in case result of
             Right t -> addDeclarations state [t]
             Left e -> addError state e
+
+constructorTypesToArgList :: ConstructorType -> [(Ident, Type)]
+constructorTypesToArgList ct =
+  case ct of
+    CTConcrete i -> [(i, Num)]
+    _ -> []
 
 newtype Constraints =
   Constraints (Map Ident Type)
@@ -302,6 +309,7 @@ typeOf t =
     TypeChecker.Let _ te -> typeOf te
     TypeChecker.BetweenParens te -> typeOf te
     TypeChecker.String' _ -> Str
+    TypeChecker.ADTConstruction _ _ -> Lambda Num Num -- TODO - make this real
 
 inferType :: CompileState -> Expression -> Either CompileError TypedExpression
 inferType state expr =
