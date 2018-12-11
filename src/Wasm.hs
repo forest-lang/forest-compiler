@@ -171,7 +171,10 @@ compileExpressions m = foldl compile (m, [])
 compileExpression :: Module -> TypedExpression -> (Module, Expression)
 compileExpression m fexpr =
   case fexpr of
-    T.Identifier _ i -> (m, GetLocal i)
+    T.Identifier t i ->
+      case t of
+        T.Applied _ _ -> (m, Call (ident "i32.load") [GetLocal i])
+        _ -> (m, GetLocal i)
     T.Number n -> (m, Const n)
     T.BetweenParens fexpr -> compileExpression m fexpr
     T.Infix _ operator a b ->
@@ -222,21 +225,21 @@ compileExpression m fexpr =
           (NE.fromList
              ([ SetLocal
                   (ident "address")
-                  (NamedCall (ident "malloc") [(Const $ (1 + length args) * 4)])
-              , Call
-                  (ident "i32.store")
-                  [(GetLocal (ident "address")), (Const tag)]
+                  (NamedCall (ident "malloc") [Const $ (1 + length args) * 4])
+              , Call (ident "i32.store") [GetLocal (ident "address"), Const tag]
               ] <>
-              (store <$> (zip [1..] args)) <>
+              (store <$> zip [1 ..] args) <>
               [GetLocal (ident "address")])))
   where
     store :: (Int, (F.Ident, T.Type)) -> Expression
     store (offset, (i, _)) =
-        Call
-            (ident "i32.store")
-            [ (Call (ident "i32.add") [GetLocal (ident "address"), Const (offset * 4)])
-            , GetLocal i
-            ]
+      Call
+        (ident "i32.store")
+        [ Call
+            (ident "i32.add")
+            [GetLocal (ident "address"), Const (offset * 4)]
+        , GetLocal i
+        ]
     constructCase ::
          Expression -> NE.NonEmpty (Expression, Expression) -> Expression
     constructCase caseExpr patterns =
@@ -268,7 +271,15 @@ compileArgument m arg =
   case arg of
     T.TAIdentifier _ i -> (m, GetLocal i)
     T.TANumberLiteral n -> (m, Const n)
-    T.TADeconstruction name _ -> (m, GetLocal name)
+    T.TADeconstruction _ tag args ->
+      let assignments = mapMaybe makeAssignment args
+          makeAssignment :: T.TypedArgument -> Maybe Expression
+          makeAssignment arg =
+            case arg of
+              TAIdentifier _ ident' ->
+                Just (SetLocal ident' (Call (ident "i32.load") [Const 0]))
+              _ -> Nothing
+       in (m, Sequence (NE.fromList (assignments <> [Const tag])))
 
 eq32 :: F.Ident
 eq32 = F.Ident $ F.NonEmptyString 'i' "32.eq"
@@ -363,6 +374,9 @@ printDeclaration (Declaration name args body) =
       case expr' of
         SetLocal name _ -> [F.s name]
         Sequence exprs -> concatMap locals $ NE.toList exprs
+        If expr expr' mexpr -> locals expr <> locals expr' <> maybe [] locals mexpr
+        Call _ exprs -> concatMap locals exprs
+        NamedCall _ exprs -> concatMap locals exprs
         _ -> []
     -- TODO - there are probably other important cases we should handle here
 
