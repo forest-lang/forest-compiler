@@ -8,15 +8,16 @@ let wasm = require('fs').readFileSync(file);
 const wasmMagic = Buffer.from([0x00, 0x61, 0x73, 0x6a]);
 
 if (wasm.slice(0,4).compare(wasmMagic) !== 0) {
-  childProcess.execFileSync("wat2wasm", [file, "-o", "/tmp/output.wat"]);
-  wasm = require('fs').readFileSync('/tmp/output.wat');
+  childProcess.execSync(`nix-shell ./nix/wabt-shell.nix --run "wat2wasm ${file} -o /tmp/output.wasm"`);
+  wasm = require('fs').readFileSync('/tmp/output.wasm');
 }
 
 WebAssembly.instantiate(wasm).then(m => {
   const result = m.instance.exports.main();
 
   if (process.argv.includes("--debug")) {
-    console.log(result);
+    console.log('Result of main():', result);
+    console.log('Memory layout after run (first 32 i32s):');
     console.log(
       Array.from(
         new Uint32Array(m.instance.exports.memory.buffer)
