@@ -7,18 +7,18 @@ end
 def test(name, result)
   wast = `stack exec forest build ./samples/#{name}.tree`
 
-  Tempfile.open("#{name}.wast") do |f|
+  Tempfile.open("#{name}.wat") do |f|
     f.write(wast)
     f.close
 
-    `wavm #{f.path}`
+    output = `./wasm-interp #{f.path}`
 
     exitcode = $?.exitstatus
 
     assert_equal(
       exitcode,
       result,
-      "Expected #{name} to return #{result} but instead got #{exitcode}"
+      "Expected #{name} to return #{result} but instead got #{exitcode}\n#{output}"
     )
   end
 end
@@ -33,18 +33,18 @@ def testCode(name, code, result)
     wast = `stack exec forest build #{f.path}`
   end
 
-  Tempfile.open("#{name}.wast") do |f|
+  Tempfile.open("#{name}.wat") do |f|
     f.write(wast)
     f.close
 
-    `wavm #{f.path}`
+    output = `./wasm-interp #{f.path}`
 
     exitcode = $?.exitstatus
 
     assert_equal(
       exitcode,
       result,
-      "Expected #{name} to return #{result} but instead got #{exitcode}" + "\n\n" + code + "\n\n" + wast
+      "Expected #{name} to return #{result} but instead got #{exitcode}\n#{output}"
     )
   end
 end
