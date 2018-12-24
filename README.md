@@ -139,7 +139,7 @@ So, very not ready for even simple applications.
 Using Forest
 ---
 
-First, you'll need to make sure you have [Stack](https://docs.haskellstack.org/en/stable/README/) installed. You will also need a ruby interpreter to run the integration tests.
+First, you'll need to make sure you have [Stack](https://docs.haskellstack.org/en/stable/README/) and [Nix](https://nixos.org/nix/download.html) installed.
 
 Next, clone this project and run `make`. If you want to make changes and submit a pull request, make a fork and clone that.
 
@@ -155,9 +155,7 @@ make
 
 Forest has a single binary right now, named `forest`. It has two commands, `forest build <file>`, which produces text-format WebAssembly, and `forest format <file>`, which reprints the given file to stdout.
 
-Currently you'll need to use another tool to translate the outputted Wast to Wasm. One option is [WAVM](https://github.com/AndrewScheidecker/WAVM). In future `forest` will produce Wasm bytecode directly.
-
-Once you have compiled the WAST to WASM, you can either run it with WAVM or through node/the browser.
+To run the generated Wast, you can either use the provided `wasm-interp` script, run it yourself with Node, or in a WebAssembly compatible browser.
 
 See [MDN](https://developer.mozilla.org/en-US/docs/WebAssembly/Using_the_JavaScript_API) for more info.
 

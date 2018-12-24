@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+const childProcess = require('child_process');
+const process = require('process');
+const file = process.argv[2];
+
+let wasm = require('fs').readFileSync(file);
+
+const wasmMagic = Buffer.from([0x00, 0x61, 0x73, 0x6a]);
+
+if (wasm.slice(0,4).compare(wasmMagic) !== 0) {
+  childProcess.execFileSync("wat2wasm", [file, "-o", "/tmp/output.wat"]);
+  wasm = require('fs').readFileSync('/tmp/output.wat');
+}
+
+WebAssembly.instantiate(wasm).then(m => {
+  const result = m.instance.exports.main();
+
+  if (process.argv.includes("--debug")) {
+    console.log(result);
+    console.log(
+      Array.from(
+        new Uint32Array(m.instance.exports.memory.buffer)
+      ).slice(0, 32).join(' ')
+    );
+  }
+
+  process.exit(result);
+});
