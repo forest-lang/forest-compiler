@@ -31,7 +31,7 @@ before_cache:
 - nix copy --to file://$HOME/nix.store -f default.nix buildInputs
 
 before_script:
-  - sudo mkdir /etc/nix && echo 'sandbox = true' | sudo tee /etc/nix/nix.conf
+  - echo 'sandbox = true' | sudo tee /etc/nix/nix.conf
 
 install:
 # Build dependencies
