@@ -1,0 +1,42 @@
+# Use new container infrastructure to enable caching
+sudo: false
+
+# Do not choose a language; we provide our own build tools.
+language: nix
+
+# Caching so the next build will be fast too.
+cache:
+  directories:
+  - $HOME/.stack
+  - $HOME/nix.store
+
+
+# Ensure necessary system libraries are present
+addons:
+  apt:
+    packages:
+      - libgmp-dev
+
+before_install:
+# Download and unpack the stack executable
+- mkdir -p ~/.local/bin
+- export PATH=$HOME/.local/bin:$PATH
+- travis_retry curl -L https://get.haskellstack.org/stable/linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+- sudo mkdir -p /etc/nix
+- echo "substituters = https://cache.nixos.org/ file://$HOME/nix.store" | sudo tee -a /etc/nix/nix.conf > /dev/null
+- echo 'require-sigs = false' | sudo tee -a /etc/nix/nix.conf > /dev/null
+
+before_cache:
+- mkdir -p $HOME/nix.store
+- nix copy --to file://$HOME/nix.store -f default.nix buildInputs
+
+before_script:
+  - sudo mkdir /etc/nix && echo 'sandbox = true' | sudo tee /etc/nix/nix.conf
+
+install:
+# Build dependencies
+- stack --no-terminal --install-ghc test --only-dependencies
+
+script:
+# Build the package, its tests, and its docs and run the tests
+- make
