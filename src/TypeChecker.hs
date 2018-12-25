@@ -14,6 +14,7 @@ module TypeChecker
   , InvalidConstruct(..)
   , replaceGenerics
   , printType
+  , TypeLambda(..)
   ) where
 
 import Data.Either

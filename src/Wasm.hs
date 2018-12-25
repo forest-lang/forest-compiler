@@ -173,6 +173,8 @@ compileExpression m fexpr =
   case fexpr of
     T.Identifier t i ->
       case t of
+        T.Applied (T.TL (T.TypeLambda _)) (T.Generic (F.Ident _)) ->
+            (m, NamedCall i [])
         T.Applied _ _ -> (m, Call (ident "i32.load") [GetLocal i])
         _ -> (m, GetLocal i)
     T.Number n -> (m, Const n)
@@ -277,7 +279,7 @@ compileArgument m arg =
           makeAssignment arg =
             case arg of
               TAIdentifier _ ident' ->
-                Just (SetLocal ident' (Call (ident "i32.load") [Const 0]))
+                Just (SetLocal ident' (Call (ident "i32.load") [Const 4]))
               _ -> Nothing
        in (m, Sequence (NE.fromList (assignments <> [Const tag])))
 
