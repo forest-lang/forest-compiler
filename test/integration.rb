@@ -5,6 +5,7 @@ def assert_equal(actual, expected, message)
 end
 
 def test(name, result)
+  puts "#{name}"
   wast = `stack exec forest build ./samples/#{name}.tree`
 
   Tempfile.open("#{name}.wat") do |f|
@@ -24,6 +25,7 @@ def test(name, result)
 end
 
 def testCode(name, code, result)
+  puts "#{name}"
   wast = nil
 
   Tempfile.open("sample.tree") do |f|
@@ -103,6 +105,40 @@ def run_tests
   FOREST
 
   testCode('case_let', code, 8)
+
+  code = <<~FOREST
+    data Maybe a
+      = Just a
+      | Nothing
+
+    test :: Maybe Int -> Int
+    test m =
+      case m of
+        Just a -> a
+        Nothing -> 5
+
+    main :: Int
+    main = test (Nothing)
+  FOREST
+
+  testCode('deconstruction_nothing', code, 5)
+
+  code = <<~FOREST
+    data Maybe a
+      = Just a
+      | Nothing
+
+    test :: Maybe Int -> Int
+    test m =
+      case m of
+        Just a -> a
+        Nothing -> 5
+
+    main :: Int
+    main = test (Just 10)
+  FOREST
+
+  testCode('case_declaration_just', code, 10)
 
   puts 'Integration tests ran successfully!'
 end
