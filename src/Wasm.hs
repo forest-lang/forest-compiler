@@ -200,7 +200,7 @@ compileExpression m fexpr =
       -- we want to generate a namedcall
     T.Case _ caseFexpr patterns ->
       let (m', caseExpr) = compileExpression m caseFexpr
-          (m'', patternExprs) = patternsToWasm m' patterns
+          (m'', patternExprs) = patternsToWasm m' caseFexpr patterns
        in (m'', constructCase caseExpr patternExprs)
     T.Let declarations fexpr ->
       let compileDeclaration' ::
@@ -254,22 +254,23 @@ compileExpression m fexpr =
             (Just (constructCase caseExpr (NE.fromList xs)))
     patternsToWasm ::
          Module
+      -> T.TypedExpression
       -> NE.NonEmpty (T.TypedArgument, T.TypedExpression)
       -> (Module, NonEmpty (Expression, Expression))
-    patternsToWasm m patterns =
+    patternsToWasm m caseFexpr patterns =
       let compilePattern ::
                (Module, [(Expression, Expression)])
             -> (T.TypedArgument, T.TypedExpression)
             -> (Module, [(Expression, Expression)])
           compilePattern (m', exprs) (a, b) =
-            let (m'', aExpr) = compileArgument m' a
+            let (m'', aExpr) = compileArgument m' caseFexpr a
                 (m''', bExpr) = compileExpression m'' b
              in (m''', exprs <> [(aExpr, bExpr)])
           (m', exprs) = foldl compilePattern (m, []) patterns
        in (m', NE.fromList exprs)
 
-compileArgument :: Module -> TypedArgument -> (Module, Expression)
-compileArgument m arg =
+compileArgument :: Module -> T.TypedExpression -> TypedArgument -> (Module, Expression)
+compileArgument m caseFexpr arg =
   case arg of
     T.TAIdentifier _ i -> (m, GetLocal i)
     T.TANumberLiteral n -> (m, Const n)
@@ -279,9 +280,14 @@ compileArgument m arg =
           makeAssignment arg =
             case arg of
               TAIdentifier _ ident' ->
-                Just (SetLocal ident' (Call (ident "i32.load") [Const 4]))
+                Just (SetLocal ident' (Call (ident "i32.load") [Call (ident "i32.add") [caseLocal, Const 4]]))
               _ -> Nothing
        in (m, Sequence (NE.fromList (assignments <> [Const tag])))
+  where
+    caseLocal =
+      case caseFexpr of
+        T.Identifier _ name -> GetLocal name
+        _ -> Const 0
 
 eq32 :: F.Ident
 eq32 = F.Ident $ F.NonEmptyString 'i' "32.eq"
