@@ -5,25 +5,27 @@ def assert_equal(actual, expected, message)
 end
 
 def test(name, result)
+  puts "#{name}"
   wast = `stack exec forest build ./samples/#{name}.tree`
 
-  Tempfile.open("#{name}.wast") do |f|
+  Tempfile.open("#{name}.wat") do |f|
     f.write(wast)
     f.close
 
-    `wavm #{f.path}`
+    output = `./wasm-interp #{f.path}`
 
     exitcode = $?.exitstatus
 
     assert_equal(
       exitcode,
       result,
-      "Expected #{name} to return #{result} but instead got #{exitcode}"
+      "Expected #{name} to return #{result} but instead got #{exitcode}\n#{output}"
     )
   end
 end
 
 def testCode(name, code, result)
+  puts "#{name}"
   wast = nil
 
   Tempfile.open("sample.tree") do |f|
@@ -33,18 +35,18 @@ def testCode(name, code, result)
     wast = `stack exec forest build #{f.path}`
   end
 
-  Tempfile.open("#{name}.wast") do |f|
+  Tempfile.open("#{name}.wat") do |f|
     f.write(wast)
     f.close
 
-    `wavm #{f.path}`
+    output = `./wasm-interp #{f.path}`
 
     exitcode = $?.exitstatus
 
     assert_equal(
       exitcode,
       result,
-      "Expected #{name} to return #{result} but instead got #{exitcode}" + "\n\n" + code + "\n\n" + wast
+      "Expected #{name} to return #{result} but instead got #{exitcode}\n#{output}"
     )
   end
 end
@@ -103,6 +105,40 @@ def run_tests
   FOREST
 
   testCode('case_let', code, 8)
+
+  code = <<~FOREST
+    data Maybe a
+      = Just a
+      | Nothing
+
+    test :: Maybe Int -> Int
+    test m =
+      case m of
+        Just a -> a
+        Nothing -> 5
+
+    main :: Int
+    main = test (Nothing)
+  FOREST
+
+  testCode('deconstruction_nothing', code, 5)
+
+  code = <<~FOREST
+    data Maybe a
+      = Just a
+      | Nothing
+
+    test :: Maybe Int -> Int
+    test m =
+      case m of
+        Just a -> a
+        Nothing -> 5
+
+    main :: Int
+    main = test (Just 10)
+  FOREST
+
+  testCode('case_declaration_just', code, 10)
 
   puts 'Integration tests ran successfully!'
 end

@@ -1,0 +1,13 @@
+
+data Maybe a
+ = Just a
+ | Nothing
+
+test :: Maybe Int -> Int
+test m =
+  case m of
+    Just a -> a
+    Nothing -> 5
+
+main :: Int
+main = test (Nothing);

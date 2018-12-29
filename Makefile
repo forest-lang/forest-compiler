@@ -13,6 +13,6 @@ unit:
 	stack test
 
 integration:
-	ruby test/integration.rb
+	nix-shell ./nix/wabt-shell.nix --run "ruby test/integration.rb"
 
 .PHONY: build test unit integration

@@ -13,6 +13,8 @@ module TypeChecker
   , Type(..)
   , InvalidConstruct(..)
   , replaceGenerics
+  , printType
+  , TypeLambda(..)
   ) where
 
 import Data.Either
@@ -59,6 +61,7 @@ data CompileState = CompileState
 
 data TypedConstructor =
   TypedConstructor Ident
+                   Int
                    [Type]
   deriving (Eq, Show)
 
@@ -105,6 +108,7 @@ data TypedExpression
         TypedExpression
   | BetweenParens TypedExpression
   | String' Text
+  | ADTConstruction Int [(Ident, Type)]
   deriving (Show, Eq, G.Generic)
 
 data TypedArgument
@@ -112,6 +116,7 @@ data TypedArgument
                  Ident
   | TANumberLiteral Int
   | TADeconstruction Ident
+                     Int
                      [TypedArgument]
   deriving (Show, Eq, G.Generic)
 
@@ -166,19 +171,19 @@ checkTopLevel state topLevel =
       addTypeConstructors
         (addDeclarations
            (addTypeLambda state tl)
-           (makeDeclaration <$> NE.toList constructors))
+           (makeDeclaration <$> (zip [0..] $ NE.toList constructors)))
         tl
-        (makeTypeConstructor <$> NE.toList constructors)
+        (makeTypeConstructor <$> (zip [0..] $ NE.toList constructors))
       where tl = TypeLambda name
             returnType = foldl Applied (TL tl) (Generic <$> generics)
-            makeDeclaration (Constructor name types) =
+            makeDeclaration (tag, (Constructor name types)) =
               TypedDeclaration
                 name
-                []
+                (maybe [] constructorTypesToArgList types)
                 (maybe returnType constructorType types)
-                (TypeChecker.Number 0)
-            makeTypeConstructor (Constructor name types) =
-              TypedConstructor name (maybe [] constructorTypes types)
+                (TypeChecker.ADTConstruction tag (maybe [] constructorTypesToArgList types))
+            makeTypeConstructor (tag, (Constructor name types)) =
+              TypedConstructor name tag (maybe [] constructorTypes types)
             constructorType t = foldr Lambda returnType (constructorTypes t)
             constructorTypes ts =
               case ts of
@@ -195,6 +200,12 @@ checkTopLevel state topLevel =
        in case result of
             Right t -> addDeclarations state [t]
             Left e -> addError state e
+
+constructorTypesToArgList :: ConstructorType -> [(Ident, Type)]
+constructorTypesToArgList ct =
+  case ct of
+    CTConcrete i -> [(i, Num)]
+    _ -> []
 
 newtype Constraints =
   Constraints (Map Ident Type)
@@ -302,6 +313,7 @@ typeOf t =
     TypeChecker.Let _ te -> typeOf te
     TypeChecker.BetweenParens te -> typeOf te
     TypeChecker.String' _ -> Str
+    TypeChecker.ADTConstruction _ _ -> Lambda Num Num -- TODO - make this real
 
 inferType :: CompileState -> Expression -> Either CompileError TypedExpression
 inferType state expr =
@@ -444,14 +456,14 @@ inferArgumentType state valueType arg err =
             typeLambda >>= flip Map.lookup (typeConstructors state)
           matchingConstructor =
             find (m name) (fromMaybe [] constructorsForValue)
-          m name (TypedConstructor name' _) = name == name'
+          m name (TypedConstructor name' _ _) = name == name'
           deconstructionFields fields =
             sequence $
             (\(a, t) -> inferArgumentType state t a err) <$> zip args fields
        in case matchingConstructor of
-            Just (TypedConstructor name fields) ->
+            Just (TypedConstructor name tag fields) ->
               if length args == length fields
-                then TADeconstruction name <$> deconstructionFields fields
+                then TADeconstruction name tag <$> deconstructionFields fields
                 else Left $
                      err $
                      "Expected " <> s name <> " to have " <>
@@ -508,7 +520,7 @@ declarationsFromTypedArgument ta =
   case ta of
     TAIdentifier t n -> [TypedDeclaration n [] t (TypeChecker.Number 0)]
     TANumberLiteral _ -> []
-    TADeconstruction _ args -> concatMap declarationsFromTypedArgument args
+    TADeconstruction _ _ args -> concatMap declarationsFromTypedArgument args
 
 stringToType ::
      Map Ident Type
