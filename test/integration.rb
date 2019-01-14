@@ -140,6 +140,23 @@ def run_tests
 
   testCode('case_declaration_just', code, 10)
 
+  code = <<~FOREST
+    data List a
+      = Cons a (List a)
+      | Empty
+
+    sum :: List Int -> Int
+    sum l =
+      case l of
+        Cons x xs -> x + sum xs
+        Empty -> 0
+
+    main :: Int
+    main = sum (Cons 5 Empty)
+  FOREST
+
+  testCode('sum_int_fold', code, 5)
+
   puts 'Integration tests ran successfully!'
 end
 
