@@ -185,6 +185,20 @@ main :: a -> b -> Int
 main a b = add a 5
 |]
 
+sumOfInts :: Text
+sumOfInts =
+  [r|
+data List a
+  = Cons a (List a)
+  | Empty
+
+sum :: List Int -> Int
+sum l =
+  case l of
+    Cons x xs -> x + sum xs
+    Empty -> 0
+|]
+
 messages :: Either (NonEmpty CompileError) () -> [Text]
 messages r =
   case r of
@@ -195,97 +209,45 @@ messages r =
 
 typeCheckerSpecs :: SpecWith ()
 typeCheckerSpecs =
+  let
+    checkResult r =
+      case r of
+        Right m -> () <$ checkModule m
+        Left err -> error $ "Failed to parse module: " ++ show err
+  in
   describe "Type checker" $ do
     it "checks valid expressions" $
-      let moduleResult = parseModule valid
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in checkResult `shouldBe` Right ()
+      checkResult (parseModule valid) `shouldBe` Right ()
     it "checks valid expressions that use locals" $
-      let moduleResult = parseModule local
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in checkResult `shouldBe` Right ()
+      checkResult (parseModule local) `shouldBe` Right ()
     it "checks invalid expressions" $
-      let moduleResult = parseModule invalid
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in messages checkResult `shouldBe`
+      messages (checkResult (parseModule invalid)) `shouldBe`
           [ "Function expected argument of type Int, but instead got argument of type String"
           ]
     it "fails if a function has an incorrect return type" $
-      let moduleResult = parseModule wrongReturnType
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in messages checkResult `shouldBe`
+      messages (checkResult (parseModule wrongReturnType)) `shouldBe`
           ["Expected foo to return type Int, but instead got type String"]
     it "fails if a case has branches that return different types" $
-      let moduleResult = parseModule badCase
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in messages checkResult `shouldBe`
+      messages (checkResult (parseModule badCase)) `shouldBe`
           ["Case expression has multiple return types: String, Int"]
     it "passes with a valid case" $
-      let moduleResult = parseModule goodCase
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in checkResult `shouldBe` Right ()
+      checkResult (parseModule goodCase) `shouldBe` Right ()
     it "fails if a let has incorrect types" $
-      let moduleResult = parseModule badLet
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in messages checkResult `shouldBe`
+      messages (checkResult (parseModule badLet)) `shouldBe`
           ["No function exists with type Int + String"]
     it "passes with a valid let" $
-      let moduleResult = parseModule goodLet
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in checkResult `shouldBe` Right ()
+      checkResult (parseModule goodLet) `shouldBe` Right ()
     it "passes with a valid let that uses functions" $
-      let moduleResult = parseModule goodFunctionLet
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in checkResult `shouldBe` Right ()
+      checkResult (parseModule goodFunctionLet) `shouldBe` Right ()
     xit "is insensitive to the order of declarations" $
-      let moduleResult = parseModule unorderedDeclarations
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in checkResult `shouldBe` Right ()
+      checkResult (parseModule unorderedDeclarations) `shouldBe` Right ()
     it "typechecks adt constructors" $
-      let moduleResult = parseModule adt
-          checkResult =
-            case moduleResult of
-              Right m -> () <$ checkModule m
-              Left err -> error $ "Failed to parse module: " ++ show err
-       in checkResult `shouldBe` Right ()
+      checkResult (parseModule adt) `shouldBe` Right ()
+    it "is permissive enough to express recurive sum on lists" $
+      checkResult (parseModule sumOfInts) `shouldBe` Right ()
     describe "generics" $ do
       it "disallows coercion of generic types" $
-        let moduleResult = parseModule disallowGenericCoercion
-            checkResult =
-              case moduleResult of
-                Right m -> () <$ checkModule m
-                Left err -> error $ "Failed to parse module: " ++ show err
-         in checkResult `shouldBe`
+        checkResult (parseModule disallowGenericCoercion) `shouldBe`
             Left
               (CompileError
                  (ExpressionError
