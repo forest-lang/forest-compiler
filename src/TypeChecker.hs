@@ -357,7 +357,7 @@ inferType state expr =
               _ -> Num
           types = (,) <$> inferType state a <*> inferType state b
           checkInfix (a, b) =
-            if typeOf a == expected && typeOf b == expected
+            if typeOf a `typeEq` expected && typeOf b `typeEq` expected
               then Right (TypeChecker.Infix expected op a b)
               else Left $
                    compileError
