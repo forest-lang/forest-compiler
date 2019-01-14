@@ -45,7 +45,13 @@ main = do
                 ((intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
                 "\n", ExitFailure 2)
       TIO.putStrLn text >> exitWith exitCode
-    ["format", filename] -> build format filename
+    ["format", filename] -> do
+      contents <- TIO.readFile filename
+      case format contents of
+        Right a ->
+          TIO.writeFile filename a >>
+          TIO.putStrLn "Formatted successfully."
+        Left err -> (TIO.putStrLn $ reportParseError filename contents err) >> exitWith (ExitFailure 1)
     ["check", filename] -> do
       contents <- TIO.readFile filename
       let (text, exitCode) =
@@ -58,12 +64,6 @@ main = do
       TIO.putStrLn text >> exitWith exitCode
     _ -> TIO.putStrLn usage >> exitFailure
   where
-    build :: (Text -> Either ParseError' Text) -> String -> IO ()
-    build f filename = do
-      contents <- TIO.readFile filename
-      case f contents of
-        Right a -> TIO.putStrLn a
-        Left err -> (TIO.putStrLn $ reportParseError filename contents err) >> exitWith (ExitFailure 1)
     printError (CompileError error message) =
       case error of
         ExpressionError expr ->
