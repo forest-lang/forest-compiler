@@ -275,12 +275,12 @@ compileArgument m caseFexpr arg =
     T.TAIdentifier _ i -> (m, GetLocal i)
     T.TANumberLiteral n -> (m, Const n)
     T.TADeconstruction _ tag args ->
-      let assignments = mapMaybe makeAssignment args
-          makeAssignment :: T.TypedArgument -> Maybe Expression
-          makeAssignment arg =
+      let assignments = mapMaybe makeAssignment (zip args [1..])
+          makeAssignment :: (T.TypedArgument, Int) -> Maybe Expression
+          makeAssignment (arg, index) =
             case arg of
               TAIdentifier _ ident' ->
-                Just (SetLocal ident' (Call (ident "i32.load") [Call (ident "i32.add") [caseLocal, Const 4]]))
+                Just (SetLocal ident' (Call (ident "i32.load") [Call (ident "i32.add") [caseLocal, Const (index * 4)]]))
               _ -> Nothing
        in (m, Sequence (NE.fromList (assignments <> [Const tag])))
   where
