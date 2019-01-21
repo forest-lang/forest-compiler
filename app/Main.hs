@@ -56,7 +56,7 @@ main = do
       contents <- TIO.readFile filename
       let (text, exitCode) =
             case check contents of
-              Success _ -> ("🎉  no errors found 🎉", ExitSuccess)
+              Success _ -> ("No errors found.", ExitSuccess)
               ParseErr err -> (reportParseError filename contents err, ExitFailure 1)
               CompileErr errors ->
                 ((intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
