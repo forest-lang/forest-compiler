@@ -199,6 +199,14 @@ sum l =
     Empty -> 0
 |]
 
+recursiveList :: Text
+recursiveList =
+  [r|
+data IntList
+  = Cons Int IntList
+  | Empty
+|]
+
 messages :: Either (NonEmpty CompileError) () -> [Text]
 messages r =
   case r of
@@ -256,3 +264,6 @@ typeCheckerSpecs =
                        (Language.Identifier (Ident (NonEmptyString 'a' "")))))
                  "Function expected argument of type Int, but instead got argument of type a" :|
                [])
+    describe "recursive types" $ do
+      it "typechecks types that refer to themselves" $
+        checkResult (parseModule recursiveList) `shouldBe` Right ()
