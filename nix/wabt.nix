@@ -2,7 +2,7 @@
 
 with pkgs;
 
-self.stdenv.mkDerivation {
+stdenv.mkDerivation {
   name = "wabt";
   src = fetchFromGitHub {
     owner = "WebAssembly";

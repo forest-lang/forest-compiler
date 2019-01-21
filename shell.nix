@@ -2,10 +2,10 @@
 with (import <nixpkgs> {});
 
 let
-  wabt = import ./nix/wabt.nix {};
+  dependencies = import ./nix/dependencies.nix {};
 in
 haskell.lib.buildStackProject {
   inherit ghc;
   name = "forest-compiler";
-  buildInputs = [ nodejs-10_x ruby wabt ];
+  buildInputs = dependencies;
 }
