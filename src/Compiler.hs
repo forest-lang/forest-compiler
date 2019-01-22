@@ -7,12 +7,12 @@ module Compiler
   , Result(..)
   ) where
 
-import Data.Text (Text)
 import Data.List.NonEmpty (NonEmpty)
+import Data.Text (Text)
 
 import HaskellSyntax
-import Wasm
 import TypeChecker
+import Wasm
 
 data Result a
   = Success a

@@ -202,8 +202,8 @@ sum l =
 recursiveList :: Text
 recursiveList =
   [r|
-data IntList
-  = Cons Int IntList
+data List
+  = Cons Int List
   | Empty
 |]
 
@@ -217,45 +217,43 @@ messages r =
 
 typeCheckerSpecs :: SpecWith ()
 typeCheckerSpecs =
-  let
-    checkResult r =
-      case r of
-        Right m -> () <$ checkModule m
-        Left err -> error $ "Failed to parse module: " ++ show err
-  in
-  describe "Type checker" $ do
-    it "checks valid expressions" $
-      checkResult (parseModule valid) `shouldBe` Right ()
-    it "checks valid expressions that use locals" $
-      checkResult (parseModule local) `shouldBe` Right ()
-    it "checks invalid expressions" $
-      messages (checkResult (parseModule invalid)) `shouldBe`
+  let checkResult r =
+        case r of
+          Right m -> () <$ checkModule m
+          Left err -> error $ "Failed to parse module: " ++ show err
+   in describe "Type checker" $ do
+        it "checks valid expressions" $
+          checkResult (parseModule valid) `shouldBe` Right ()
+        it "checks valid expressions that use locals" $
+          checkResult (parseModule local) `shouldBe` Right ()
+        it "checks invalid expressions" $
+          messages (checkResult (parseModule invalid)) `shouldBe`
           [ "Function expected argument of type Int, but instead got argument of type String"
           ]
-    it "fails if a function has an incorrect return type" $
-      messages (checkResult (parseModule wrongReturnType)) `shouldBe`
+        it "fails if a function has an incorrect return type" $
+          messages (checkResult (parseModule wrongReturnType)) `shouldBe`
           ["Expected foo to return type Int, but instead got type String"]
-    it "fails if a case has branches that return different types" $
-      messages (checkResult (parseModule badCase)) `shouldBe`
+        it "fails if a case has branches that return different types" $
+          messages (checkResult (parseModule badCase)) `shouldBe`
           ["Case expression has multiple return types: String, Int"]
-    it "passes with a valid case" $
-      checkResult (parseModule goodCase) `shouldBe` Right ()
-    it "fails if a let has incorrect types" $
-      messages (checkResult (parseModule badLet)) `shouldBe`
+        it "passes with a valid case" $
+          checkResult (parseModule goodCase) `shouldBe` Right ()
+        it "fails if a let has incorrect types" $
+          messages (checkResult (parseModule badLet)) `shouldBe`
           ["No function exists with type Int + String"]
-    it "passes with a valid let" $
-      checkResult (parseModule goodLet) `shouldBe` Right ()
-    it "passes with a valid let that uses functions" $
-      checkResult (parseModule goodFunctionLet) `shouldBe` Right ()
-    xit "is insensitive to the order of declarations" $
-      checkResult (parseModule unorderedDeclarations) `shouldBe` Right ()
-    it "typechecks adt constructors" $
-      checkResult (parseModule adt) `shouldBe` Right ()
-    it "is permissive enough to express recurive sum on lists" $
-      checkResult (parseModule sumOfInts) `shouldBe` Right ()
-    describe "generics" $ do
-      it "disallows coercion of generic types" $
-        checkResult (parseModule disallowGenericCoercion) `shouldBe`
+        it "passes with a valid let" $
+          checkResult (parseModule goodLet) `shouldBe` Right ()
+        it "passes with a valid let that uses functions" $
+          checkResult (parseModule goodFunctionLet) `shouldBe` Right ()
+        xit "is insensitive to the order of declarations" $
+          checkResult (parseModule unorderedDeclarations) `shouldBe` Right ()
+        it "typechecks adt constructors" $
+          checkResult (parseModule adt) `shouldBe` Right ()
+        it "is permissive enough to express recurive sum on lists" $
+          checkResult (parseModule sumOfInts) `shouldBe` Right ()
+        describe "generics" $ do
+          it "disallows coercion of generic types" $
+            checkResult (parseModule disallowGenericCoercion) `shouldBe`
             Left
               (CompileError
                  (ExpressionError
@@ -264,6 +262,6 @@ typeCheckerSpecs =
                        (Language.Identifier (Ident (NonEmptyString 'a' "")))))
                  "Function expected argument of type Int, but instead got argument of type a" :|
                [])
-    describe "recursive types" $ do
-      it "typechecks types that refer to themselves" $
-        checkResult (parseModule recursiveList) `shouldBe` Right ()
+        describe "recursive types" $ do
+          it "typechecks types that refer to themselves" $
+            checkResult (parseModule recursiveList) `shouldBe` Right ()

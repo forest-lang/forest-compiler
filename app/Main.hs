@@ -11,17 +11,18 @@ import Data.Text
 import qualified Data.Text.IO as TIO
 import Safe
 import System.Environment
+import System.Exit
 import Text.Megaparsec.Error
 import Text.RawString.QQ
-import System.Exit
 
 import Compiler
 import HaskellSyntax
 import TypeChecker
 
 usage :: Text
-usage = strip
-  [r|
+usage =
+  strip
+    [r|
 usage: forest command path
 
 commands:
@@ -40,27 +41,34 @@ main = do
       let (text, exitCode) =
             case compile contents of
               Success w -> (w, ExitSuccess)
-              ParseErr err -> (reportParseError filename contents err, ExitFailure 1)
+              ParseErr err ->
+                (reportParseError filename contents err, ExitFailure 1)
               CompileErr errors ->
-                ((intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
-                "\n", ExitFailure 2)
+                ( (intercalate "\n\n-----------\n\n" . toList $
+                   printError <$> errors) <>
+                  "\n"
+                , ExitFailure 2)
       TIO.putStrLn text >> exitWith exitCode
     ["format", filename] -> do
       contents <- TIO.readFile filename
       case format contents of
         Right a ->
-          TIO.writeFile filename a >>
-          TIO.putStrLn "Formatted successfully."
-        Left err -> (TIO.putStrLn $ reportParseError filename contents err) >> exitWith (ExitFailure 1)
+          TIO.writeFile filename a >> TIO.putStrLn "Formatted successfully."
+        Left err ->
+          (TIO.putStrLn $ reportParseError filename contents err) >>
+          exitWith (ExitFailure 1)
     ["check", filename] -> do
       contents <- TIO.readFile filename
       let (text, exitCode) =
             case check contents of
               Success _ -> ("No errors found.", ExitSuccess)
-              ParseErr err -> (reportParseError filename contents err, ExitFailure 1)
+              ParseErr err ->
+                (reportParseError filename contents err, ExitFailure 1)
               CompileErr errors ->
-                ((intercalate "\n\n-----------\n\n" . toList $ printError <$> errors) <>
-                "\n", ExitFailure 2)
+                ( (intercalate "\n\n-----------\n\n" . toList $
+                   printError <$> errors) <>
+                  "\n"
+                , ExitFailure 2)
       TIO.putStrLn text >> exitWith exitCode
     _ -> TIO.putStrLn usage >> exitFailure
   where
@@ -74,6 +82,11 @@ main = do
         DeclarationError decl ->
           "Encountered a type error in a declaration:\n\n" <>
           indent2 (printDeclaration decl) <>
+          "\n\n" <>
+          message
+        DataTypeError dt ->
+          "Encountered a type error in a datatype:\n\n" <>
+          indent2 (printDataType dt) <>
           "\n\n" <>
           message
 

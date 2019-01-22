@@ -14,6 +14,7 @@ module HaskellSyntax
   , operatorToString
   , printDeclaration
   , indent2
+  , printDataType
   ) where
 
 import Language
@@ -211,8 +212,7 @@ annotationTypes = do
   return (NE.fromList $ firstType : types)
 
 pType :: Parser AnnotationType
-pType
- = do
+pType = do
   let typeInParens = parens' (Parenthesized <$> annotationTypes)
       concreteType = (Concrete <$> pIdent)
   parts <- some (try (sc *> (typeInParens <|> concreteType)))

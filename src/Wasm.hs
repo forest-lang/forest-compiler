@@ -174,7 +174,7 @@ compileExpression m fexpr =
     T.Identifier t i ->
       case t of
         T.Applied (T.TL (T.TypeLambda _)) (T.Generic (F.Ident _)) ->
-            (m, NamedCall i [])
+          (m, NamedCall i [])
         T.Applied _ _ -> (m, Call (ident "i32.load") [GetLocal i])
         _ -> (m, GetLocal i)
     T.Number n -> (m, Const n)
@@ -269,18 +269,24 @@ compileExpression m fexpr =
           (m', exprs) = foldl compilePattern (m, []) patterns
        in (m', NE.fromList exprs)
 
-compileArgument :: Module -> T.TypedExpression -> TypedArgument -> (Module, Expression)
+compileArgument ::
+     Module -> T.TypedExpression -> TypedArgument -> (Module, Expression)
 compileArgument m caseFexpr arg =
   case arg of
     T.TAIdentifier _ i -> (m, GetLocal i)
     T.TANumberLiteral n -> (m, Const n)
     T.TADeconstruction _ tag args ->
-      let assignments = mapMaybe makeAssignment (zip args [1..])
+      let assignments = mapMaybe makeAssignment (zip args [1 ..])
           makeAssignment :: (T.TypedArgument, Int) -> Maybe Expression
           makeAssignment (arg, index) =
             case arg of
               TAIdentifier _ ident' ->
-                Just (SetLocal ident' (Call (ident "i32.load") [Call (ident "i32.add") [caseLocal, Const (index * 4)]]))
+                Just
+                  (SetLocal
+                     ident'
+                     (Call
+                        (ident "i32.load")
+                        [Call (ident "i32.add") [caseLocal, Const (index * 4)]]))
               _ -> Nothing
        in (m, Sequence (NE.fromList (assignments <> [Const tag])))
   where
@@ -382,7 +388,8 @@ printDeclaration (Declaration name args body) =
       case expr' of
         SetLocal name _ -> [F.s name]
         Sequence exprs -> concatMap locals $ NE.toList exprs
-        If expr expr' mexpr -> locals expr <> locals expr' <> maybe [] locals mexpr
+        If expr expr' mexpr ->
+          locals expr <> locals expr' <> maybe [] locals mexpr
         Call _ exprs -> concatMap locals exprs
         NamedCall _ exprs -> concatMap locals exprs
         _ -> []

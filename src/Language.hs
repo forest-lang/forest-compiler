@@ -78,7 +78,8 @@ data Expression
 
 data Argument
   = AIdentifier Ident
-  | ADeconstruction Ident [Argument]
+  | ADeconstruction Ident
+                    [Argument]
   | ANumberLiteral Int
   deriving (Show, Eq, G.Generic)
 
@@ -89,7 +90,8 @@ data Constructor =
 
 data ConstructorType
   = CTConcrete Ident
-  | CTApplied ConstructorType ConstructorType
+  | CTApplied ConstructorType
+              ConstructorType
   | CTParenthesized ConstructorType
   deriving (Show, Eq, G.Generic)
 

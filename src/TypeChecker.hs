@@ -49,6 +49,7 @@ data CompileError =
 data InvalidConstruct
   = DeclarationError Declaration
   | ExpressionError Expression
+  | DataTypeError ADT
   deriving (Eq, Show)
 
 data CompileState = CompileState
@@ -108,7 +109,8 @@ data TypedExpression
         TypedExpression
   | BetweenParens TypedExpression
   | String' Text
-  | ADTConstruction Int [(Ident, Type)]
+  | ADTConstruction Int
+                    [(Ident, Type)]
   deriving (Show, Eq, G.Generic)
 
 data TypedArgument
@@ -164,37 +166,70 @@ checkModule (Module topLevels) =
         Just e' -> Left e'
         Nothing -> Right (TypedModule (typedDeclarations compileState))
 
+eitherToArrays :: [Either a b] -> Either [a] [b]
+eitherToArrays e =
+  let (lefts, rights) = partitionEithers e
+   in case lefts of
+        [] -> Right rights
+        _ -> Left lefts
+
 checkTopLevel :: CompileState -> TopLevel -> CompileState
 checkTopLevel state topLevel =
   case topLevel of
-    DataType (ADT name generics constructors) ->
-      addTypeConstructors
-        (addDeclarations
-           (addTypeLambda state tl)
-           (makeDeclaration <$> (zip [0..] $ NE.toList constructors)))
-        tl
-        (makeTypeConstructor <$> (zip [0..] $ NE.toList constructors))
+    DataType adt@(ADT name generics constructors) ->
+      let declarations :: Either [CompileError] [TypedDeclaration]
+          declarations =
+            eitherToArrays $
+            (makeDeclaration <$> (zip [0 ..] $ NE.toList constructors))
+          ctors :: Either [CompileError] [TypedConstructor]
+          ctors =
+            eitherToArrays $
+            (makeTypeConstructor <$> (zip [0 ..] $ NE.toList constructors))
+       in case (declarations, ctors) of
+            (Right ds, Right cs) ->
+              addTypeConstructors
+                (addDeclarations (addTypeLambda state tl) ds)
+                tl
+                cs
+            (Left errors, _) -> foldl addError state errors
+            (_, Left errors) -> foldl addError state errors
       where tl = TypeLambda name
             returnType = foldl Applied (TL tl) (Generic <$> generics)
+            makeDeclaration ::
+                 (Int, Constructor) -> Either CompileError TypedDeclaration
             makeDeclaration (tag, (Constructor name types)) =
-              TypedDeclaration
-                name
-                (maybe [] constructorTypesToArgList types)
-                (maybe returnType constructorType types)
-                (TypeChecker.ADTConstruction tag (maybe [] constructorTypesToArgList types))
+              (\x ->
+                 TypedDeclaration
+                   name
+                   (maybe [] constructorTypesToArgList types)
+                   x
+                   (TypeChecker.ADTConstruction
+                      tag
+                      (maybe [] constructorTypesToArgList types))) <$>
+              (maybe (Right returnType) constructorType types)
+            makeTypeConstructor ::
+                 (Int, Constructor) -> Either CompileError TypedConstructor
             makeTypeConstructor (tag, (Constructor name types)) =
-              TypedConstructor name tag (maybe [] constructorTypes types)
-            constructorType t = foldr Lambda returnType (constructorTypes t)
-            constructorTypes ts =
-              case ts of
+              TypedConstructor name tag <$>
+              (maybe (Right []) constructorTypes types)
+            constructorType :: ConstructorType -> Either CompileError Type
+            constructorType t = foldr Lambda returnType <$> (constructorTypes t)
+            errorMessage a = CompileError $ DataTypeError a
+            constructorTypes :: ConstructorType -> Either CompileError [Type]
+            constructorTypes t =
+              case t of
                 CTConcrete i ->
-                  case stringToType (types state) undefined i of
-                    Right x -> [x]
-                    Left _ -> []
+                  case findTypeFromIdent
+                         ((Map.insert name returnType) $ types state)
+                         (errorMessage adt)
+                         i of
+                    Right x -> Right [x]
+                    Left e -> Left e
                 CTParenthesized (CTApplied (CTConcrete a) (CTConcrete b)) ->
-                  [Applied (TL (TypeLambda a)) (Generic b)]
+                  Right [Applied (TL (TypeLambda a)) (Generic b)]
                 CTParenthesized t -> constructorTypes t
-                CTApplied a b -> constructorTypes a ++ constructorTypes b
+                CTApplied a b ->
+                  (<>) <$> constructorTypes a <*> constructorTypes b
     Function declaration ->
       let result = checkDeclaration state declaration
        in case result of
@@ -205,7 +240,8 @@ constructorTypesToArgList :: ConstructorType -> [(Ident, Type)]
 constructorTypesToArgList ct =
   case ct of
     CTConcrete i -> [(i, Num)]
-    _ -> []
+    CTApplied a b -> constructorTypesToArgList a <> constructorTypesToArgList b
+    _ -> error (show ct)
 
 newtype Constraints =
   Constraints (Map Ident Type)
@@ -466,10 +502,11 @@ inferArgumentType state valueType arg err =
                 then TADeconstruction name tag <$> deconstructionFields fields
                 else Left $
                      err $
-                     "Expected " <> s name <> " to have " <>
-                     showT (length fields) <>
+                     "Expected " <> s name <> " to have " <> showT (fields) <>
                      " fields, instead found " <>
-                     showT (length args)
+                     showT (args) <>
+                     " arg: " <>
+                     showT (arg)
             Nothing ->
               Left $
               err $
@@ -489,7 +526,7 @@ inferDeclarationType state declaration =
     compileError = CompileError $ DeclarationError declaration
     annotationTypeToType t =
       case t of
-        Concrete i -> stringToType (types state) compileError i
+        Concrete i -> findTypeFromIdent (types state) compileError i
         Parenthesized types -> reduceTypes types
         TypeApplication a b -> inferTypeApplication a b
       where
@@ -522,12 +559,12 @@ declarationsFromTypedArgument ta =
     TANumberLiteral _ -> []
     TADeconstruction _ _ args -> concatMap declarationsFromTypedArgument args
 
-stringToType ::
+findTypeFromIdent ::
      Map Ident Type
   -> (Text -> CompileError)
   -> Ident
   -> Either CompileError Type
-stringToType types compileError ident =
+findTypeFromIdent types compileError ident =
   if T.toLower i == i
     then Right $ Generic ident
     else case Map.lookup ident types of
