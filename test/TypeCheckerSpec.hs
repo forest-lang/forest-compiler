@@ -251,7 +251,7 @@ typeCheckerSpecs =
           checkResult (parseModule adt) `shouldBe` Right ()
         it "is permissive enough to express recurive sum on lists" $
           checkResult (parseModule sumOfInts) `shouldBe` Right ()
-        describe "generics" $ do
+        describe "generics" $
           it "disallows coercion of generic types" $
             checkResult (parseModule disallowGenericCoercion) `shouldBe`
             Left
@@ -262,6 +262,6 @@ typeCheckerSpecs =
                        (Language.Identifier (Ident (NonEmptyString 'a' "")))))
                  "Function expected argument of type Int, but instead got argument of type a" :|
                [])
-        describe "recursive types" $ do
+        describe "recursive types" $
           it "typechecks types that refer to themselves" $
             checkResult (parseModule recursiveList) `shouldBe` Right ()

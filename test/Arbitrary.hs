@@ -178,8 +178,7 @@ genDeclaration = do
   name <- genIdent
   annotation <- genMaybe genAnnotation
   args <- listOf genIdent
-  expr <- genExpression
-  return $ Declaration annotation name args expr
+  Declaration annotation name args <$> genExpression
 
 genAnnotation :: Gen Annotation
 genAnnotation = do
@@ -258,5 +257,4 @@ genCaseBranch = genArgument >*< genExpression
 genLet :: Gen Expression
 genLet = do
   declarations <- genNonEmpty genDeclaration
-  expr <- genExpression
-  return $ Let declarations expr
+  Let declarations <$> genExpression

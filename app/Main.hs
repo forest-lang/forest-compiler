@@ -55,7 +55,7 @@ main = do
         Right a ->
           TIO.writeFile filename a >> TIO.putStrLn "Formatted successfully."
         Left err ->
-          (TIO.putStrLn $ reportParseError filename contents err) >>
+          TIO.putStrLn (reportParseError filename contents err) >>
           exitWith (ExitFailure 1)
     ["check", filename] -> do
       contents <- TIO.readFile filename

@@ -179,12 +179,12 @@ checkTopLevel state topLevel =
     DataType adt@(ADT name generics constructors) ->
       let declarations :: Either [CompileError] [TypedDeclaration]
           declarations =
-            eitherToArrays $
-            (makeDeclaration <$> (zip [0 ..] $ NE.toList constructors))
+            eitherToArrays
+            (makeDeclaration <$> zip [0 ..] (NE.toList constructors))
           ctors :: Either [CompileError] [TypedConstructor]
           ctors =
-            eitherToArrays $
-            (makeTypeConstructor <$> (zip [0 ..] $ NE.toList constructors))
+            eitherToArrays
+            (makeTypeConstructor <$> zip [0 ..] (NE.toList constructors))
        in case (declarations, ctors) of
             (Right ds, Right cs) ->
               addTypeConstructors
@@ -197,30 +197,30 @@ checkTopLevel state topLevel =
             returnType = foldl Applied (TL tl) (Generic <$> generics)
             makeDeclaration ::
                  (Int, Constructor) -> Either CompileError TypedDeclaration
-            makeDeclaration (tag, (Constructor name types)) =
-              (\x ->
+            makeDeclaration (tag, Constructor name types) =
+              \x ->
                  TypedDeclaration
                    name
                    (maybe [] constructorTypesToArgList types)
                    x
                    (TypeChecker.ADTConstruction
                       tag
-                      (maybe [] constructorTypesToArgList types))) <$>
-              (maybe (Right returnType) constructorType types)
+                      (maybe [] constructorTypesToArgList types)) <$>
+              maybe (Right returnType) constructorType types
             makeTypeConstructor ::
                  (Int, Constructor) -> Either CompileError TypedConstructor
-            makeTypeConstructor (tag, (Constructor name types)) =
+            makeTypeConstructor (tag, Constructor name types) =
               TypedConstructor name tag <$>
-              (maybe (Right []) constructorTypes types)
+              maybe (Right []) constructorTypes types
             constructorType :: ConstructorType -> Either CompileError Type
-            constructorType t = foldr Lambda returnType <$> (constructorTypes t)
+            constructorType t = foldr Lambda returnType <$> constructorTypes t
             errorMessage a = CompileError $ DataTypeError a
             constructorTypes :: ConstructorType -> Either CompileError [Type]
             constructorTypes t =
               case t of
                 CTConcrete i ->
                   case findTypeFromIdent
-                         ((Map.insert name returnType) $ types state)
+                         (Map.insert name returnType $ types state)
                          (errorMessage adt)
                          i of
                     Right x -> Right [x]
@@ -301,9 +301,9 @@ checkDeclaration state declaration = do
   let argsWithTypes = zip args (NE.toList annotationTypes)
   let locals = makeDeclaration <$> argsWithTypes
   expectedReturnType <-
-    (case (NE.drop (length args) annotationTypes) of
+    case NE.drop (length args) annotationTypes of
        (x:xs) -> Right $ collapseTypes (x :| xs)
-       _ -> Left $ CompileError (DeclarationError declaration) "Not enough args")
+       _ -> Left $ CompileError (DeclarationError declaration) "Not enough args"
   let typedDeclaration =
         TypedDeclaration
           name
@@ -502,18 +502,15 @@ inferArgumentType state valueType arg err =
                 then TADeconstruction name tag <$> deconstructionFields fields
                 else Left $
                      err $
-                     "Expected " <> s name <> " to have " <> showT (fields) <>
+                     "Expected " <> s name <> " to have " <> showT fields <>
                      " fields, instead found " <>
-                     showT (args) <>
-                     " arg: " <>
-                     showT (arg)
+                     showT args
             Nothing ->
               Left $
               err $
               "no constructor named \"" <> s name <> "\" for " <>
               printType valueType <>
-              " in scope." <>
-              showT (typeLambda)
+              " in scope."
 
 inferDeclarationType ::
      CompileState -> Declaration -> Either CompileError (NE.NonEmpty Type)

@@ -142,8 +142,7 @@ pLet = do
   declarations <- pDeclarations
   _ <- symbol "in"
   scn
-  expression <- expr
-  return $ Let declarations expression
+  Let declarations <$> expr
   where
     pDeclarations = L.indentBlock scn p
     p = do
@@ -201,8 +200,7 @@ annotation = do
   sc
   _ <- symbol "::"
   sc
-  types <- annotationTypes
-  return $ Annotation name types
+  Annotation name <$> annotationTypes
 
 annotationTypes :: Parser (NE.NonEmpty AnnotationType)
 annotationTypes = do
@@ -214,7 +212,7 @@ annotationTypes = do
 pType :: Parser AnnotationType
 pType = do
   let typeInParens = parens' (Parenthesized <$> annotationTypes)
-      concreteType = (Concrete <$> pIdent)
+      concreteType = Concrete <$> pIdent
   parts <- some (try (sc *> (typeInParens <|> concreteType)))
   return $
     case parts of
