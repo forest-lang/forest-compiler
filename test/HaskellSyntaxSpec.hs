@@ -182,15 +182,15 @@ haskellSyntaxSpecs =
       parseResult `shouldBe` Right expected
     it "prints and reparses arbitrary expressions losslessly" $
       withMaxSuccess 100 (property propParseAndPrint)
-    describe "annotation type parsing" $
+    describe "annotation type parsing" $ do
       it "correctly parses applications" $
-      let expected =
-            TypeApplication
+        let expected =
               (TypeApplication
-                 (Concrete (Ident (NonEmptyString 'E' "ither")))
-                 (Concrete (Ident (NonEmptyString 'S' "tring"))))
-              (Concrete (Ident (NonEmptyString 'I' "nt")))
-       in parse pType "" "Either String Int" `shouldBe` Right expected
+                 (TypeApplication
+                    (Concrete (Ident (NonEmptyString 'E' "ither")))
+                    (Concrete (Ident (NonEmptyString 'S' "tring"))))
+                 (Concrete (Ident (NonEmptyString 'I' "nt"))))
+         in parse pType "" "Either String Int" `shouldBe` Right expected
 
 ne :: Text -> Ident
 ne s = Ident $ NonEmptyString (T.head s) (T.tail s)
