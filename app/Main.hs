@@ -12,6 +12,7 @@ import qualified Data.Text.IO as TIO
 import Safe
 import System.Environment
 import System.Exit
+import System.IO
 import Text.Megaparsec.Error
 import Text.RawString.QQ
 
@@ -38,39 +39,39 @@ main = do
   case args of
     ["build", filename] -> do
       contents <- TIO.readFile filename
-      let (text, exitCode) =
+      let (printText, exitCode) =
             case compile contents of
-              Success w -> (w, ExitSuccess)
+              Success w -> (TIO.putStrLn w, ExitSuccess)
               ParseErr err ->
-                (reportParseError filename contents err, ExitFailure 1)
+                (TIO.hPutStrLn stderr $ reportParseError filename contents err, ExitFailure 1)
               CompileErr errors ->
-                ( (intercalate "\n\n-----------\n\n" . toList $
+                (TIO.hPutStrLn stderr $  (intercalate "\n\n-----------\n\n" . toList $
                    printError <$> errors) <>
                   "\n"
                 , ExitFailure 2)
-      TIO.putStrLn text >> exitWith exitCode
+      printText >> exitWith exitCode
     ["format", filename] -> do
       contents <- TIO.readFile filename
       case format contents of
         Right a ->
           TIO.writeFile filename a >> TIO.putStrLn "Formatted successfully."
         Left err ->
-          (TIO.putStrLn $ reportParseError filename contents err) >>
+          (TIO.hPutStrLn stderr $ reportParseError filename contents err) >>
           exitWith (ExitFailure 1)
     ["check", filename] -> do
       contents <- TIO.readFile filename
-      let (text, exitCode) =
+      let (printText, exitCode) =
             case check contents of
-              Success _ -> ("No errors found.", ExitSuccess)
+              Success _ -> (TIO.putStrLn "No errors found.", ExitSuccess)
               ParseErr err ->
-                (reportParseError filename contents err, ExitFailure 1)
+                (TIO.hPutStrLn stderr $ reportParseError filename contents err, ExitFailure 1)
               CompileErr errors ->
-                ( (intercalate "\n\n-----------\n\n" . toList $
+                ( TIO.hPutStrLn stderr $ (intercalate "\n\n-----------\n\n" . toList $
                    printError <$> errors) <>
                   "\n"
                 , ExitFailure 2)
-      TIO.putStrLn text >> exitWith exitCode
-    _ -> TIO.putStrLn usage >> exitFailure
+      printText >> exitWith exitCode
+    _ -> TIO.hPutStrLn stderr usage >> exitFailure
   where
     printError (CompileError error message) =
       case error of
