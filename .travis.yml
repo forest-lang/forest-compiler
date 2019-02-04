@@ -28,7 +28,7 @@ before_install:
 
 before_cache:
 - mkdir -p $HOME/nix.store
-- nix copy --to file://$HOME/nix.store -f default.nix buildInputs
+- nix copy --to file://$HOME/nix.store -f shell.nix --arg ghc "with (import <nixpkgs> {}); haskell.compiler.ghc822"  buildInputs
 
 before_script:
   - echo 'sandbox = true' | sudo tee /etc/nix/nix.conf
