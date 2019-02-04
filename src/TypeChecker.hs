@@ -83,6 +83,7 @@ newtype TypeLambda =
 
 newtype TypedModule =
   TypedModule [TypedDeclaration]
+  deriving (Show)
 
 data TypedDeclaration =
   TypedDeclaration Ident
@@ -94,6 +95,7 @@ data TypedDeclaration =
 data TypedExpression
   = Identifier Type
                Ident
+               TypedDeclaration
   | Number Int
   | Infix Type
           OperatorExpr
@@ -241,7 +243,7 @@ constructorTypesToArgList ct =
   case ct of
     CTConcrete i -> [(i, Num)]
     CTApplied a b -> constructorTypesToArgList a <> constructorTypesToArgList b
-    _ -> error (show ct)
+    CTParenthesized ct -> constructorTypesToArgList ct
 
 newtype Constraints =
   Constraints (Map Ident Type)
@@ -330,7 +332,8 @@ checkDeclaration state declaration = do
   actualReturnType >>= typeChecks
   where
     makeDeclaration (i, t) =
-      TypedDeclaration i [] t (TypeChecker.Identifier t i)
+      let d = TypedDeclaration i [] t (TypeChecker.Identifier t i d)
+       in d
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -341,7 +344,7 @@ lambdaType left right remainder =
 typeOf :: TypedExpression -> Type
 typeOf t =
   case t of
-    TypeChecker.Identifier t _ -> t
+    TypeChecker.Identifier t _ _ -> t
     TypeChecker.Apply t _ _ -> t
     TypeChecker.Number _ -> Num
     TypeChecker.Infix t _ _ _ -> t
@@ -359,7 +362,8 @@ inferType state expr =
     Language.BetweenParens expr -> inferType state expr
     Language.Identifier name ->
       case find (m name) declarations of
-        Just (TypedDeclaration _ _ t _) -> Right $ TypeChecker.Identifier t name
+        Just d@(TypedDeclaration _ _ t _) ->
+          Right $ TypeChecker.Identifier t name d
         Nothing ->
           Left $
           compileError

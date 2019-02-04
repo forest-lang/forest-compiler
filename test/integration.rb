@@ -141,11 +141,11 @@ def run_tests
   testCode('case_declaration_just', code, 10)
 
   code = <<~FOREST
-    data List a
-      = Cons a (List a)
+    data List
+      = Cons Int List
       | Empty
 
-    sum :: List Int -> Int
+    sum :: List -> Int
     sum l =
       case l of
         Cons x xs -> x + sum xs

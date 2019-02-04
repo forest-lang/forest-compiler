@@ -18,7 +18,7 @@ data Result a
   = Success a
   | ParseErr ParseError'
   | CompileErr (NonEmpty CompileError)
-  deriving (Functor)
+  deriving (Show, Functor)
 
 check :: Text -> Result TypedModule
 check s =

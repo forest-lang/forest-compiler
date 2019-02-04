@@ -171,11 +171,31 @@ compileExpressions m = foldl compile (m, [])
 compileExpression :: Module -> TypedExpression -> (Module, Expression)
 compileExpression m fexpr =
   case fexpr of
-    T.Identifier t i ->
+    T.Identifier t i d
+    -- if it's a local variable, call get_local
+    -- if the type is Applied use i32.load?
+    --
+    -- currently, we rely on the structure of the provided type in order to decide
+    -- what code to generate for an identifier
+    --
+    -- in the permitted syntax, it's possible to refer to similar constructs, eg :
+    --
+    --  a local with type `foo :: Num`
+    --  a constructor with type `Nothing :: Maybe a`
+    --
+    -- for the local, we would want to generate a GetLocal
+    -- currently, for the constructor we would to generatl
+     ->
       case t of
         T.Applied (T.TL (T.TypeLambda _)) (T.Generic (F.Ident _)) ->
           (m, NamedCall i [])
-        T.Applied _ _ -> (m, Call (ident "i32.load") [GetLocal i])
+        T.TL (T.TypeLambda _) ->
+          case d of
+            T.TypedDeclaration _ [] _ (T.Number 0) ->
+              (m, GetLocal i)
+            T.TypedDeclaration _ [] _ (T.ADTConstruction _ []) ->
+              (m, NamedCall i [])
+            _ -> error (show d)
         _ -> (m, GetLocal i)
     T.Number n -> (m, Const n)
     T.BetweenParens fexpr -> compileExpression m fexpr
@@ -188,10 +208,10 @@ compileExpression m fexpr =
             _ -> (m'', Call (funcForOperator operator) [aExpr, bExpr])
     T.Apply _ left right ->
       case left of
-        T.Apply _ (T.Identifier _ name) r' ->
+        T.Apply _ (T.Identifier _ name _) r' ->
           let (m', exprs) = compileExpressions m [right, r']
            in (m', Sequence $ NE.fromList (exprs <> [NamedCall name []]))
-        T.Identifier _ name ->
+        T.Identifier _ name _ ->
           let (m', r) = compileExpression m right
            in (m', NamedCall name [r])
         _ -> error $ "do not know what to do with " <> show left
@@ -199,7 +219,7 @@ compileExpression m fexpr =
       -- and that right refers to a number
       -- we want to generate a namedcall
     T.Case _ caseFexpr patterns ->
-      let (m', caseExpr) = compileExpression m caseFexpr
+      let (m', caseExpr) = compileCaseExpression m caseFexpr
           (m'', patternExprs) = patternsToWasm m' caseFexpr patterns
        in (m'', constructCase caseExpr patternExprs)
     T.Let declarations fexpr ->
@@ -269,6 +289,16 @@ compileExpression m fexpr =
           (m', exprs) = foldl compilePattern (m, []) patterns
        in (m', NE.fromList exprs)
 
+compileCaseExpression :: Module -> T.TypedExpression -> (Module, Expression)
+compileCaseExpression m fexpr =
+  case fexpr of
+    Identifier t i _ ->
+      case t of
+        T.Applied _ _ -> (m, Call (ident "i32.load") [GetLocal i])
+        T.TL (T.TypeLambda _) -> (m, Call (ident "i32.load") [GetLocal i])
+        _ -> compileExpression m fexpr
+    _ -> compileExpression m fexpr
+
 compileArgument ::
      Module -> T.TypedExpression -> TypedArgument -> (Module, Expression)
 compileArgument m caseFexpr arg =
@@ -292,7 +322,7 @@ compileArgument m caseFexpr arg =
   where
     caseLocal =
       case caseFexpr of
-        T.Identifier _ name -> GetLocal name
+        T.Identifier _ name _ -> GetLocal name
         _ -> Const 0
 
 eq32 :: F.Ident
