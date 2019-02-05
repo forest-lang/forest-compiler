@@ -127,12 +127,15 @@ Right now, it supports:
  * strings!
  * memory management (kinda)
  * a type system (simple but there)
+ * ADTs
+ * lists
  
 Critical missing features:
-  * lists, hashes, booleans
-  * if/else
-  * ADTs, union types
-  * effects
+  * code generation for generic ADTs
+  * an effect system
+  * a standard library of data structures
+  * a module system
+  * a way to install and share packages
 
 So, very not ready for even simple applications.
 
