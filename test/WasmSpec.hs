@@ -8,7 +8,7 @@ module WasmSpec
 
 import Data.Either
 import Data.List.NonEmpty (NonEmpty(..))
-import Data.Text (Text)
+import Data.Text (Text, unpack)
 import qualified Data.Text as T
 import System.Exit
 import System.IO.Temp
@@ -17,6 +17,7 @@ import Test.Hspec
 import Test.QuickCheck
 import Text.RawString.QQ
 
+import Compiler
 import HaskellSyntax
 import Language
 import TypeChecker
@@ -24,20 +25,27 @@ import Wasm
 
 import Arbitrary
 
-propCodeThatTypeChecksShouldCompile :: Language.Module -> Bool
+instance Testable (IO Bool) where
+  property = ioProperty
+
+propCodeThatTypeChecksShouldCompile :: Language.Module -> IO Bool
 propCodeThatTypeChecksShouldCompile m =
-  case checkModule m of
-    Right typedModule ->
-      case m of
-        Language.Module [] -> True
-        _ ->
-          sum
-            (T.length <$> T.lines (printWasm $ forestModuleToWasm typedModule)) >
-          1
-    Left _ -> True
+  case printWasm . forestModuleToWasm <$> checkModule m of
+    Right wat -> do
+      path <- writeSystemTempFile "wat" (unpack wat)
+      exitCode <- system $ "wat2wasm " ++ show path ++ " -o /dev/null"
+      case exitCode of
+        ExitSuccess -> return True
+        ExitFailure _ -> do
+          _ <- system "mkdir -p failures"
+          writeFile "./failures/last.tree" (unpack wat)
+          return False
+    Left _ -> return True
 
 wasmSpecs :: SpecWith ()
 wasmSpecs =
   describe "wasm code generation" $
-  it "checks valid expressions" $
-  withMaxSuccess 500 (property propCodeThatTypeChecksShouldCompile)
+  it "generates valid wasm for any well typed module" $
+  withMaxSuccess
+    1000
+    (property (forAll genModule propCodeThatTypeChecksShouldCompile))

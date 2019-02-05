@@ -5,7 +5,7 @@ const file = process.argv[2];
 
 let wasm = require('fs').readFileSync(file);
 
-const wasmMagic = Buffer.from([0x00, 0x61, 0x73, 0x6a]);
+const wasmMagic = Buffer.from([0x00, 0x61, 0x73, 0x6d]);
 
 if (wasm.slice(0,4).compare(wasmMagic) !== 0) {
   childProcess.execSync(`wat2wasm ${file} -o /tmp/output.wasm`);

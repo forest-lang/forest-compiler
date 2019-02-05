@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 
 module Arbitrary
-  (
+  ( genModule
   ) where
 
 import HaskellSyntax
