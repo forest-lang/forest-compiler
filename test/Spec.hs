@@ -16,10 +16,15 @@ import Language
 import HaskellSyntaxSpec
 import TypeCheckerSpec
 import WasmSpec
+import SampleSpec
 
 main :: IO ()
-main =
+main = do
+  vSampleSpecs <- validSampleSpecs
+  iSampleSpecs <- invalidSampleSpecs
   hspec $ do
     typeCheckerSpecs
+    vSampleSpecs
+    iSampleSpecs
     wasmSpecs
     haskellSyntaxSpecs

@@ -49,6 +49,7 @@ test-suite forest-compiler-test
   other-modules:       HaskellSyntaxSpec
                      , TypeCheckerSpec
                      , WasmSpec
+                     , SampleSpec
                      , Arbitrary
   build-depends:       base
                      , forest-compiler
@@ -59,6 +60,7 @@ test-suite forest-compiler-test
                      , raw-strings-qq
                      , temporary
                      , text
+                     , directory
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Werror -Wunused-matches -Wunused-local-binds -Wmissing-signatures -Wincomplete-patterns -Wincomplete-uni-patterns -Wincomplete-record-updates
   default-language:    Haskell2010
 
