@@ -1,0 +1,37 @@
+data Result error value
+  = Err error
+  | Ok value
+
+data Maybe a
+  = Just a
+  | Nothing
+
+map :: (a -> b) -> Result e a -> Result e b
+map f result =
+    case result of
+      Ok  v -> Ok (f v)
+      Err e -> Err e
+
+andThen :: Result e a -> (a -> Result e b) -> Result e b
+andThen result callback =
+    case result of
+      Ok value -> callback value
+      Err msg -> Err msg
+
+formatError :: (e -> fe) -> Result e a -> Result fe a
+formatError f result =
+    case result of
+      Ok  v -> Ok v
+      Err e -> Err (f e)
+
+toMaybe :: Result e a -> Maybe a
+toMaybe result =
+    case result of
+      Ok  v -> Just v
+      Err err -> Nothing
+
+fromMaybe :: e -> Maybe a -> Result e a
+fromMaybe err maybe =
+    case maybe of
+      Just v  -> Ok v
+      Nothing -> Err err

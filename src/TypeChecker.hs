@@ -242,6 +242,7 @@ constructorTypesToArgList :: ConstructorType -> [(Ident, Type)]
 constructorTypesToArgList ct =
   case ct of
     CTConcrete i -> [(i, Num)]
+    CTApplied a (CTConcrete i) | s i == T.toLower (s i) -> constructorTypesToArgList a
     CTApplied a b -> constructorTypesToArgList a <> constructorTypesToArgList b
     CTParenthesized ct -> constructorTypesToArgList ct
 

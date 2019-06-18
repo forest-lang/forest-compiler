@@ -19,7 +19,7 @@ def test(name, result)
     assert_equal(
       exitcode,
       result,
-      "Expected #{name} to return #{result} but instead got #{exitcode}\n#{output}"
+      "Expected #{name} to return #{result} but instead got #{exitcode}\n#{output}\n#{wast}"
     )
   end
 end
@@ -46,7 +46,7 @@ def testCode(name, code, result)
     assert_equal(
       exitcode,
       result,
-      "Expected #{name} to return #{result} but instead got #{exitcode}\n#{output}"
+      "Expected #{name} to return #{result} but instead got #{exitcode}\n#{output}\n#{wast}"
     )
   end
 end
@@ -156,6 +156,23 @@ def run_tests
   FOREST
 
   testCode('sum_int_fold', code, 5)
+
+  code = <<~FOREST
+    data List a
+      = Cons a (List a)
+      | Empty
+
+    sum :: List Int -> Int
+    sum l =
+      case l of
+        Cons x xs -> x + sum xs
+        Empty -> 0
+
+    main :: Int
+    main = sum (Cons 5 Empty)
+  FOREST
+
+  testCode('generic_list_sum_fold', code, 5)
 
   puts 'Integration tests ran successfully!'
 end

@@ -14,6 +14,8 @@ import qualified Language as F
 
 import Control.Arrow ((***))
 import Data.Char
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty((:|)))
@@ -58,6 +60,23 @@ data Expression
        (Maybe Expression)
   | Sequence (NE.NonEmpty Expression)
   deriving (Show, Eq)
+
+data Locals = Locals (Set F.Ident)
+
+noLocals :: Locals
+noLocals = Locals (Set.empty)
+
+addLocal :: F.Ident -> Locals -> Locals
+addLocal i (Locals l) =
+  Locals (Set.insert i l)
+
+addLocals :: [F.Ident] -> Locals -> Locals
+addLocals is (Locals l) =
+  Locals (Set.union l (Set.fromList is))
+
+mergeLocals :: Locals -> Locals -> Locals
+mergeLocals (Locals a) (Locals b) =
+  Locals (Set.union a b)
 
 showT :: Show a => a -> Text
 showT = Text.pack . show
@@ -146,14 +165,14 @@ allocateBytes (Module topLevel bytes) extraBytes =
 
 compileDeclaration :: Module -> TypedDeclaration -> Module
 compileDeclaration m (TypedDeclaration name args _ fexpr) =
-  let (m', expr') = compileExpression m fexpr
+  let (m', expr') = compileExpression m (Locals (Set.fromList (fst <$> args))) fexpr
       func = Func $ Declaration name (fst <$> args) expr'
    in addTopLevel m' [func]
 
 compileInlineDeclaration ::
-     Module -> TypedDeclaration -> (Maybe Expression, Module)
-compileInlineDeclaration m (TypedDeclaration name args _ fexpr) =
-  let (m', expr') = compileExpression m fexpr
+     Module -> Locals -> TypedDeclaration -> (Maybe Expression, Module)
+compileInlineDeclaration m (Locals l) (TypedDeclaration name args _ fexpr) =
+  let (m', expr') = compileExpression m (Locals (Set.union l (Set.fromList (fst <$> args)))) fexpr
    in case args of
         [] -> (Just $ SetLocal name expr', m')
         _ ->
@@ -165,11 +184,11 @@ compileExpressions ::
 compileExpressions m = foldl compile (m, [])
   where
     compile (m, xs) te =
-      let (m', e) = compileExpression m te
+      let (m', e) = compileExpression m (Locals Set.empty) te
        in (m', e : xs)
 
-compileExpression :: Module -> TypedExpression -> (Module, Expression)
-compileExpression m fexpr =
+compileExpression :: Module -> Locals -> TypedExpression -> (Module, Expression)
+compileExpression m locals@(Locals l) fexpr =
   case fexpr of
     T.Identifier t i d
     -- if it's a local variable, call get_local
@@ -188,7 +207,10 @@ compileExpression m fexpr =
      ->
       case t of
         T.Applied (T.TL (T.TypeLambda _)) (T.Generic (F.Ident _)) ->
-          (m, NamedCall i [])
+          if (Set.member i l) then
+            (m, GetLocal i)
+          else
+            (m, NamedCall i [])
         T.TL (T.TypeLambda _) ->
           case d of
             T.TypedDeclaration _ [] _ (T.Number 0) ->
@@ -198,10 +220,10 @@ compileExpression m fexpr =
             _ -> error (show d)
         _ -> (m, GetLocal i)
     T.Number n -> (m, Const n)
-    T.BetweenParens fexpr -> compileExpression m fexpr
+    T.BetweenParens fexpr -> compileExpression m locals fexpr
     T.Infix _ operator a b ->
-      let (m', aExpr) = compileExpression m a
-          (m'', bExpr) = compileExpression m' b
+      let (m', aExpr) = compileExpression m locals a
+          (m'', bExpr) = compileExpression m' locals b
           name = (F.Ident $ F.NonEmptyString 's' "tring_add")
        in case operator of
             F.StringAdd -> (m'', NamedCall name [aExpr, bExpr])
@@ -212,14 +234,14 @@ compileExpression m fexpr =
           let (m', exprs) = compileExpressions m [right, r']
            in (m', Sequence $ NE.fromList (exprs <> [NamedCall name []]))
         T.Identifier _ name _ ->
-          let (m', r) = compileExpression m right
+          let (m', r) = compileExpression m locals right
            in (m', NamedCall name [r])
         _ -> error $ "do not know what to do with " <> show left
       -- say that left refers to a function declaration
       -- and that right refers to a number
       -- we want to generate a namedcall
     T.Case _ caseFexpr patterns ->
-      let (m', caseExpr) = compileCaseExpression m caseFexpr
+      let (m', caseExpr) = compileCaseExpression m locals caseFexpr
           (m'', patternExprs) = patternsToWasm m' caseFexpr patterns
        in (m'', constructCase caseExpr patternExprs)
     T.Let declarations fexpr ->
@@ -228,13 +250,15 @@ compileExpression m fexpr =
             -> TypedDeclaration
             -> (Module, [Expression])
           compileDeclaration' (m', declarations) declaration =
-            let (mExpr, m'') = compileInlineDeclaration m' declaration
+            let (mExpr, m'') = compileInlineDeclaration m' locals declaration
              in case mExpr of
                   Just expr -> (m'', declarations <> [expr])
                   Nothing -> (m'', declarations)
           (m', declarationExpressions) =
             foldl compileDeclaration' (m, []) declarations
-          (m'', expr') = compileExpression m' fexpr
+          names = NE.toList $ (\(TypedDeclaration name _ _ _) -> name) <$> declarations
+          locals' = Locals $ Set.union l (Set.fromList names)
+          (m'', expr') = compileExpression m' locals' fexpr
        in (m'', Sequence $ NE.fromList (declarationExpressions <> [expr']))
     T.String' str ->
       let (Module _ address) = m
@@ -283,28 +307,28 @@ compileExpression m fexpr =
             -> (T.TypedArgument, T.TypedExpression)
             -> (Module, [(Expression, Expression)])
           compilePattern (m', exprs) (a, b) =
-            let (m'', aExpr) = compileArgument m' caseFexpr a
-                (m''', bExpr) = compileExpression m'' b
+            let (m'', aExpr, locals') = compileArgument m' caseFexpr a
+                (m''', bExpr) = compileExpression m'' (mergeLocals locals locals') b
              in (m''', exprs <> [(aExpr, bExpr)])
           (m', exprs) = foldl compilePattern (m, []) patterns
        in (m', NE.fromList exprs)
 
-compileCaseExpression :: Module -> T.TypedExpression -> (Module, Expression)
-compileCaseExpression m fexpr =
+compileCaseExpression :: Module -> Locals -> T.TypedExpression -> (Module, Expression)
+compileCaseExpression m locals fexpr =
   case fexpr of
     Identifier t i _ ->
       case t of
         T.Applied _ _ -> (m, Call (ident "i32.load") [GetLocal i])
         T.TL (T.TypeLambda _) -> (m, Call (ident "i32.load") [GetLocal i])
-        _ -> compileExpression m fexpr
-    _ -> compileExpression m fexpr
+        _ -> compileExpression m locals fexpr
+    _ -> compileExpression m locals fexpr
 
 compileArgument ::
-     Module -> T.TypedExpression -> TypedArgument -> (Module, Expression)
+     Module -> T.TypedExpression -> TypedArgument -> (Module, Expression, Locals)
 compileArgument m caseFexpr arg =
   case arg of
-    T.TAIdentifier _ i -> (m, GetLocal i)
-    T.TANumberLiteral n -> (m, Const n)
+    T.TAIdentifier _ i -> (m, GetLocal i, addLocal i noLocals)
+    T.TANumberLiteral n -> (m, Const n, noLocals)
     T.TADeconstruction _ tag args ->
       let assignments = mapMaybe makeAssignment (zip args [1 ..])
           makeAssignment :: (T.TypedArgument, Int) -> Maybe Expression
@@ -318,7 +342,10 @@ compileArgument m caseFexpr arg =
                         (ident "i32.load")
                         [Call (ident "i32.add") [caseLocal, Const (index * 4)]]))
               _ -> Nothing
-       in (m, Sequence (NE.fromList (assignments <> [Const tag])))
+          localName (TAIdentifier _ ident') = Just ident'
+          localName _ = Nothing
+          locals = addLocals (mapMaybe localName args) noLocals
+       in (m, Sequence (NE.fromList (assignments <> [Const tag])), locals)
   where
     caseLocal =
       case caseFexpr of
