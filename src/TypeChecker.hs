@@ -175,63 +175,63 @@ eitherToArrays e =
         [] -> Right rights
         _ -> Left lefts
 
+checkDataType :: CompileState -> ADT -> CompileState
+checkDataType state adt@(ADT name generics constructors) =
+  let transformConstructors f =
+        eitherToArrays $ (f <$> (zip [0 ..] $ NE.toList constructors))
+      declarations :: Either [CompileError] [TypedDeclaration]
+      declarations = transformConstructors makeDeclaration
+      ctors :: Either [CompileError] [TypedConstructor]
+      ctors = transformConstructors makeTypeConstructor
+   in case (declarations, ctors) of
+        (Right ds, Right cs) ->
+          addTypeConstructors
+            (addDeclarations (addTypeLambda state tl) ds)
+            tl
+            cs
+        (Left errors, _) -> foldl addError state errors
+        (_, Left errors) -> foldl addError state errors
+  where
+    tl = TypeLambda name
+    returnType = foldl Applied (TL tl) (Generic <$> generics)
+    makeDeclaration ::
+         (Int, Constructor) -> Either CompileError TypedDeclaration
+    makeDeclaration (tag, (Constructor name types)) =
+      (\x ->
+         TypedDeclaration
+           name
+           (maybe [] constructorTypesToArgList types)
+           x
+           (TypeChecker.ADTConstruction
+              tag
+              (maybe [] constructorTypesToArgList types))) <$>
+      (maybe (Right returnType) constructorType types)
+    makeTypeConstructor ::
+         (Int, Constructor) -> Either CompileError TypedConstructor
+    makeTypeConstructor (tag, (Constructor name types)) =
+      TypedConstructor name tag <$> (maybe (Right []) constructorTypes types)
+    constructorType :: ConstructorType -> Either CompileError Type
+    constructorType t = foldr Lambda returnType <$> (constructorTypes t)
+    errorMessage a = CompileError $ DataTypeError a
+    constructorTypes :: ConstructorType -> Either CompileError [Type]
+    constructorTypes t =
+      case t of
+        CTConcrete i ->
+          case findTypeFromIdent
+                 ((Map.insert name returnType) $ types state)
+                 (errorMessage adt)
+                 i of
+            Right x -> Right [x]
+            Left e -> Left e
+        CTParenthesized (CTApplied (CTConcrete a) (CTConcrete b)) ->
+          Right [Applied (TL (TypeLambda a)) (Generic b)]
+        CTParenthesized t -> constructorTypes t
+        CTApplied a b -> (<>) <$> constructorTypes a <*> constructorTypes b
+
 checkTopLevel :: CompileState -> TopLevel -> CompileState
 checkTopLevel state topLevel =
   case topLevel of
-    DataType adt@(ADT name generics constructors) ->
-      let declarations :: Either [CompileError] [TypedDeclaration]
-          declarations =
-            eitherToArrays $
-            (makeDeclaration <$> (zip [0 ..] $ NE.toList constructors))
-          ctors :: Either [CompileError] [TypedConstructor]
-          ctors =
-            eitherToArrays $
-            (makeTypeConstructor <$> (zip [0 ..] $ NE.toList constructors))
-       in case (declarations, ctors) of
-            (Right ds, Right cs) ->
-              addTypeConstructors
-                (addDeclarations (addTypeLambda state tl) ds)
-                tl
-                cs
-            (Left errors, _) -> foldl addError state errors
-            (_, Left errors) -> foldl addError state errors
-      where tl = TypeLambda name
-            returnType = foldl Applied (TL tl) (Generic <$> generics)
-            makeDeclaration ::
-                 (Int, Constructor) -> Either CompileError TypedDeclaration
-            makeDeclaration (tag, (Constructor name types)) =
-              (\x ->
-                 TypedDeclaration
-                   name
-                   (maybe [] constructorTypesToArgList types)
-                   x
-                   (TypeChecker.ADTConstruction
-                      tag
-                      (maybe [] constructorTypesToArgList types))) <$>
-              (maybe (Right returnType) constructorType types)
-            makeTypeConstructor ::
-                 (Int, Constructor) -> Either CompileError TypedConstructor
-            makeTypeConstructor (tag, (Constructor name types)) =
-              TypedConstructor name tag <$>
-              (maybe (Right []) constructorTypes types)
-            constructorType :: ConstructorType -> Either CompileError Type
-            constructorType t = foldr Lambda returnType <$> (constructorTypes t)
-            errorMessage a = CompileError $ DataTypeError a
-            constructorTypes :: ConstructorType -> Either CompileError [Type]
-            constructorTypes t =
-              case t of
-                CTConcrete i ->
-                  case findTypeFromIdent
-                         ((Map.insert name returnType) $ types state)
-                         (errorMessage adt)
-                         i of
-                    Right x -> Right [x]
-                    Left e -> Left e
-                CTParenthesized (CTApplied (CTConcrete a) (CTConcrete b)) ->
-                  Right [Applied (TL (TypeLambda a)) (Generic b)]
-                CTParenthesized t -> constructorTypes t
-                CTApplied a b ->
-                  (<>) <$> constructorTypes a <*> constructorTypes b
+    DataType adt -> checkDataType state adt
     Function declaration ->
       let result = checkDeclaration state declaration
        in case result of
@@ -242,7 +242,8 @@ constructorTypesToArgList :: ConstructorType -> [(Ident, Type)]
 constructorTypesToArgList ct =
   case ct of
     CTConcrete i -> [(i, Num)]
-    CTApplied a (CTConcrete i) | s i == T.toLower (s i) -> constructorTypesToArgList a
+    CTApplied a (CTConcrete i)
+      | s i == T.toLower (s i) -> constructorTypesToArgList a
     CTApplied a b -> constructorTypesToArgList a <> constructorTypesToArgList b
     CTParenthesized ct -> constructorTypesToArgList ct
 
@@ -355,116 +356,153 @@ typeOf t =
     TypeChecker.String' _ -> Str
     TypeChecker.ADTConstruction _ _ -> Lambda Num Num -- TODO - make this real
 
+inferApplicationType ::
+     CompileState
+  -> Expression
+  -> Expression
+  -> (Text -> CompileError)
+  -> Either CompileError TypedExpression
+inferApplicationType state a b compileError =
+  let typedExprs = (,) <$> inferType state a <*> inferType state b
+      inferApplication (a, b) =
+        case (typeOf a, typeOf b) of
+          (Lambda x r, b') ->
+            case typeConstraints x b' of
+              Just constraints ->
+                Right (TypeChecker.Apply (replaceGenerics constraints r) a b)
+              Nothing ->
+                Left $
+                compileError
+                  ("Function expected argument of type " <> printType x <>
+                   ", but instead got argument of type " <>
+                   printType b')
+          _ ->
+            Left $
+            compileError $
+            "Tried to apply a value of type " <> printType (typeOf a) <>
+            " to a value of type " <>
+            printType (typeOf b)
+   in typedExprs >>= inferApplication
+
+inferIdentifierType ::
+     CompileState
+  -> Ident
+  -> (Text -> CompileError)
+  -> Either CompileError TypedExpression
+inferIdentifierType state name compileError =
+  case find (m name) declarations of
+    Just d@(TypedDeclaration _ _ t _) -> Right $ TypeChecker.Identifier t name d
+    Nothing ->
+      Left $
+      compileError
+        ("It's not clear what \"" <> idToString name <> "\" refers to")
+  where
+    declarations = typedDeclarations state
+    m name (TypedDeclaration name' _ _ _) = name == name'
+
+inferInfixType ::
+     CompileState
+  -> OperatorExpr
+  -> Expression
+  -> Expression
+  -> (Text -> CompileError)
+  -> Either CompileError TypedExpression
+inferInfixType state op a b compileError =
+  let expected =
+        case op of
+          StringAdd -> Str
+          _ -> Num
+      types = (,) <$> inferType state a <*> inferType state b
+      checkInfix (a, b) =
+        if typeOf a `typeEq` expected && typeOf b `typeEq` expected
+          then Right (TypeChecker.Infix expected op a b)
+          else Left $
+               compileError
+                 ("No function exists with type " <> printType (typeOf a) <> " " <>
+                  operatorToString op <>
+                  " " <>
+                  printType (typeOf b))
+   in types >>= checkInfix
+
+inferCaseType ::
+     CompileState
+  -> Expression
+  -> (NonEmpty (Argument, Expression))
+  -> (Text -> CompileError)
+  -> Either CompileError TypedExpression
+inferCaseType state value branches compileError = do
+  v <- inferType state value
+  b <- sequence $ inferBranch v <$> branches
+  allBranchesHaveSameType v b
+  where
+    inferBranch v (a, b) = do
+      a' <- inferArgumentType state (typeOf v) a compileError
+      let argDeclarations = declarationsFromTypedArgument a'
+      b' <- inferType (addDeclarations state argDeclarations) b
+      return (a', b')
+    allBranchesHaveSameType ::
+         TypedExpression
+      -> NonEmpty (TypedArgument, TypedExpression)
+      -> Either CompileError TypedExpression
+    allBranchesHaveSameType value types =
+      case NE.groupWith (typeOf . snd) types of
+        [x] -> Right (TypeChecker.Case (typeOf . snd $ NE.head x) value types)
+        -- TODO - there is a bug where we consider Result a b to be equal to Result c d,
+        --        failing to recognize the importance of whether a and b have been bound in the signature
+        types' ->
+          if all
+               (\case
+                  (x:y:_) -> x `typeEq` y || y `typeEq` x
+                  _ -> False)
+               (F.toList <$> replicateM 2 (typeOf . snd . NE.head <$> types'))
+            then Right
+                   (TypeChecker.Case
+                      (typeOf . snd $ NE.head (head types'))
+                      value
+                      types)
+            else Left $
+                 compileError
+                   ("Case expression has multiple return types: " <>
+                    T.intercalate
+                      ", "
+                      (printType <$> NE.toList (typeOf . snd <$> types)))
+
+inferLetType ::
+     CompileState
+  -> NonEmpty Declaration
+  -> Expression
+  -> (Text -> CompileError)
+  -> Either CompileError TypedExpression
+inferLetType state declarations' value _ =
+  let branchTypes ::
+           [TypedDeclaration]
+        -> [Declaration]
+        -> Either CompileError [TypedDeclaration]
+      branchTypes typed untyped =
+        case untyped of
+          [] -> Right []
+          (x:xs) ->
+            checkDeclaration (addDeclarations state typed) x >>= \t ->
+              (:) t <$> branchTypes (typed ++ [t]) xs
+   in branchTypes [] (NE.toList declarations') >>= \b ->
+        TypeChecker.Let (NE.fromList b) <$>
+        inferType (addDeclarations state b) value
+
 inferType :: CompileState -> Expression -> Either CompileError TypedExpression
 inferType state expr =
   case expr of
     Language.Number n -> Right $ TypeChecker.Number n
     Language.String' s -> Right $ TypeChecker.String' s
     Language.BetweenParens expr -> inferType state expr
-    Language.Identifier name ->
-      case find (m name) declarations of
-        Just d@(TypedDeclaration _ _ t _) ->
-          Right $ TypeChecker.Identifier t name d
-        Nothing ->
-          Left $
-          compileError
-            ("It's not clear what \"" <> idToString name <> "\" refers to")
-    Language.Apply a b ->
-      let typedExprs = (,) <$> inferType state a <*> inferType state b
-          inferApplication (a, b) =
-            case (typeOf a, typeOf b) of
-              (Lambda x r, b') ->
-                case typeConstraints x b' of
-                  Just constraints ->
-                    Right
-                      (TypeChecker.Apply (replaceGenerics constraints r) a b)
-                  Nothing ->
-                    Left $
-                    compileError
-                      ("Function expected argument of type " <> printType x <>
-                       ", but instead got argument of type " <>
-                       printType b')
-              _ ->
-                Left $
-                compileError $
-                "Tried to apply a value of type " <> printType (typeOf a) <>
-                " to a value of type " <>
-                printType (typeOf b)
-       in typedExprs >>= inferApplication
-    Language.Infix op a b ->
-      let expected =
-            case op of
-              StringAdd -> Str
-              _ -> Num
-          types = (,) <$> inferType state a <*> inferType state b
-          checkInfix (a, b) =
-            if typeOf a `typeEq` expected && typeOf b `typeEq` expected
-              then Right (TypeChecker.Infix expected op a b)
-              else Left $
-                   compileError
-                     ("No function exists with type " <> printType (typeOf a) <>
-                      " " <>
-                      operatorToString op <>
-                      " " <>
-                      printType (typeOf b))
-       in types >>= checkInfix
-    Language.Case value branches -> do
-      v <- inferType state value
-      b <- sequence $ inferBranch v <$> branches
-      allBranchesHaveSameType v b
-      where inferBranch v (a, b) = do
-              a' <- inferArgumentType state (typeOf v) a compileError
-              let argDeclarations = declarationsFromTypedArgument a'
-              b' <- inferType (addDeclarations state argDeclarations) b
-              return (a', b')
-            allBranchesHaveSameType ::
-                 TypedExpression
-              -> NonEmpty (TypedArgument, TypedExpression)
-              -> Either CompileError TypedExpression
-            allBranchesHaveSameType value types =
-              case NE.groupWith (typeOf . snd) types of
-                [x] ->
-                  Right
-                    (TypeChecker.Case (typeOf . snd $ NE.head x) value types)
-                types'
-                    -- TODO - there is a bug where we consider Result a b to be equal to Result c d,
-                    --        failing to recognize the importance of whether a and b have been bound in the signature
-                 ->
-                  if all
-                       (\case
-                          (x:y:_) -> x `typeEq` y || y `typeEq` x
-                          _ -> False)
-                       (F.toList <$>
-                        replicateM 2 (typeOf . snd . NE.head <$> types'))
-                    then Right
-                           (TypeChecker.Case
-                              (typeOf . snd $ NE.head (head types'))
-                              value
-                              types)
-                    else Left $
-                         compileError
-                           ("Case expression has multiple return types: " <>
-                            T.intercalate
-                              ", "
-                              (printType <$> NE.toList (typeOf . snd <$> types)))
+    Language.Identifier name -> inferIdentifierType state name compileError
+    Language.Apply a b -> inferApplicationType state a b compileError
+    Language.Infix op a b -> inferInfixType state op a b compileError
+    Language.Case value branches ->
+      inferCaseType state value branches compileError
     Language.Let declarations' value ->
-      let branchTypes ::
-               [TypedDeclaration]
-            -> [Declaration]
-            -> Either CompileError [TypedDeclaration]
-          branchTypes typed untyped =
-            case untyped of
-              [] -> Right []
-              (x:xs) ->
-                checkDeclaration (addDeclarations state typed) x >>= \t ->
-                  (:) t <$> branchTypes (typed ++ [t]) xs
-       in branchTypes [] (NE.toList declarations') >>= \b ->
-            TypeChecker.Let (NE.fromList b) <$>
-            inferType (addDeclarations state b) value
+      inferLetType state declarations' value compileError
   where
-    m name (TypedDeclaration name' _ _ _) = name == name'
     compileError = CompileError $ ExpressionError expr
-    declarations = typedDeclarations state
 
 inferArgumentType ::
      CompileState
