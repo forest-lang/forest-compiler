@@ -21,6 +21,7 @@ import Language
 
 import Control.Monad (void)
 import Data.Functor.Identity ()
+import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
 import Data.Semigroup
 import Data.Text (Text, intercalate)
@@ -114,36 +115,20 @@ pLowerCaseIdent :: Parser Ident
 pLowerCaseIdent = makeIdent lowerChar alphaNumChar
 
 pCase :: Parser Expression
-pCase = L.indentBlock scn p
+pCase = L.indentBlock scn p'
   where
-    p = do
-      _ <- symbol "case"
-      sc
-      caseExpr <- expr
-      scn
-      _ <- symbol "of"
-      return $
-        L.IndentSome Nothing (return . Case caseExpr . NE.fromList) caseBranch
-    caseBranch = do
-      pattern' <- caseArgument
-      sc
-      _ <- symbol "->"
-      scn
-      branchExpr <- expr
-      return (pattern', branchExpr)
+    p' = indentArgs <$> (symbol "case" *> sc *> expr <* scn <* symbol "of")
+    makeCase caseExpr = return . Case caseExpr . NE.fromList
+    indentArgs caseExpr = L.IndentSome Nothing (makeCase caseExpr) caseBranch
+    caseBranch = (,) <$> caseArgument <*> (sc *> symbol "->" *> scn *> expr)
     caseArgument = sc *> (deconstruction <|> identifier <|> numberLiteral)
-    deconstruction =
-      ADeconstruction <$> pCapitalizedIdent <*> many (try caseArgument)
+    caseArguments = many (try caseArgument)
+    deconstruction = ADeconstruction <$> pCapitalizedIdent <*> caseArguments
     identifier = AIdentifier <$> pLowerCaseIdent
     numberLiteral = ANumberLiteral <$> L.decimal
 
 pLet :: Parser Expression
-pLet = do
-  declarations <- pDeclarations
-  _ <- symbol "in"
-  scn
-  expression <- expr
-  return $ Let declarations expression
+pLet = Let <$> pDeclarations <* symbol "in" <* scn <*> expr
   where
     pDeclarations = L.indentBlock scn p
     p = do
@@ -157,64 +142,45 @@ tld :: Parser TopLevel
 tld = L.nonIndented scn (dataType <|> function)
 
 dataType :: Parser TopLevel
-dataType = do
-  _ <- symbol "data"
-  _ <- sc
-  name <- pIdent
-  generics <- many (sc *> pIdent)
-  scn
-  _ <- symbol "="
-  constructor <- pConstructor
-  constructors <- many (try (scn *> symbol "|" *> sc *> pConstructor))
-  scn
-  return $
-    DataType $ ADT name generics (NE.fromList (constructor : constructors))
+dataType = DataType <$> (ADT <$> name <*> generics <*> (equals *> constructors))
   where
-    pConstructor = do
-      name <- sc *> pIdent
-      types <- maybeParse pConstructorType
-      return $ Constructor name types
-    pConstructorType =
-      ((CTParenthesized <$> try (sc *> parens' pConstructorType)) <|>
-       (CTConcrete <$> (sc *> pIdent))) >>=
-      (\x -> CTApplied x <$> pConstructorType <|> return x)
+    name = symbol "data" *> sc *> pIdent
+    equals = (scn <|> sc) *> symbol "="
+    constructors = (:|) <$> pConstructor <*> otherConstructors <* scn
+    otherConstructors = many (try (scn *> symbol "|" *> sc *> pConstructor))
+    generics = many (sc *> pIdent)
+
+pConstructor :: Parser Constructor
+pConstructor = Constructor <$> (sc *> pIdent) <*> maybeParse pConstructorType
+  where
+    pConstructorType = (parens <|> concrete) >>= applied
+    parens = CTParenthesized <$> try (sc *> parens' pConstructorType)
+    concrete = CTConcrete <$> (sc *> pIdent)
+    applied x = CTApplied x <$> pConstructorType <|> return x
 
 function :: Parser TopLevel
 function = Function <$> declaration
 
 declaration :: Parser Declaration
-declaration = do
-  annotation' <- maybeParse annotation
-  sc
-  name <- pIdent
-  args <- many (try (sc *> pIdent))
-  sc
-  _ <- symbol "="
-  scn
-  expression <- expr
-  scn
-  return $ Declaration annotation' name args expression
+declaration = Declaration <$> maybeAnnotation <*> name <*> args <*> expr'
+  where
+    maybeAnnotation = maybeParse annotation
+    name = sc *> pIdent
+    args = many (try (sc *> pIdent))
+    expr' = sc *> symbol "=" *> scn *> expr <* scn
 
 annotation :: Parser Annotation
-annotation = do
-  name <- pIdent
-  sc
-  _ <- symbol "::"
-  sc
-  types <- annotationTypes
-  return $ Annotation name types
+annotation = Annotation <$> pIdent <*> types
+  where
+    types = sc *> symbol "::" *> sc *> annotationTypes
 
 annotationTypes :: Parser (NE.NonEmpty AnnotationType)
-annotationTypes = do
-  firstType <- pType
-  types <- many (sc *> symbol "->" *> pType)
-  scn
-  return (NE.fromList $ firstType : types)
+annotationTypes = (:|) <$> pType <*> many (sc *> symbol "->" *> pType) <* scn
 
 pType :: Parser AnnotationType
 pType = do
   let typeInParens = parens' (Parenthesized <$> annotationTypes)
-      concreteType = (Concrete <$> pIdent)
+      concreteType = Concrete <$> pIdent
   parts <- some (try (sc *> (typeInParens <|> concreteType)))
   return $
     case parts of
@@ -293,28 +259,37 @@ printExpression expression =
         else "(" <> printExpression expr' <> ")"
     Let declarations expr' -> printLet declarations expr'
     String' str -> "\"" <> str <> "\""
-  where
-    printPatterns patterns = T.unlines $ NE.toList $ printPattern <$> patterns
-    printPattern (argument, resultExpr) =
-      printArgument argument <> " -> " <> printSecondInfix resultExpr
-    printLet declarations expr' =
-      intercalate "\n" $
-      Prelude.concat
-        [ ["let"]
-        , indent2 . printDeclaration <$> NE.toList declarations
-        , ["in"]
-        , [indent2 $ printExpression expr']
-        ]
-    printArgument a =
-      case a of
-        AIdentifier i -> s i
-        ADeconstruction ident args ->
-          T.intercalate " " $ s ident : (printArgument <$> args)
-        ANumberLiteral t -> showT t
-    printSecondInfix expr' =
-      if isComplex expr'
-        then "\n" <> indent2 (printExpression expr')
-        else printExpression expr'
+
+printPatterns :: NonEmpty (Argument, Expression) -> Text
+printPatterns patterns = T.unlines $ NE.toList $ printPattern <$> patterns
+
+printPattern :: (Argument, Expression) -> Text
+printPattern (argument, resultExpr) =
+  printArgument argument <> " -> " <> printSecondInfix resultExpr
+
+printLet :: NonEmpty Declaration -> Expression -> Text
+printLet declarations expr' =
+  intercalate "\n" $
+  Prelude.concat
+    [ ["let"]
+    , indent2 . printDeclaration <$> NE.toList declarations
+    , ["in"]
+    , [indent2 $ printExpression expr']
+    ]
+
+printArgument :: Argument -> Text
+printArgument a =
+  case a of
+    AIdentifier i -> s i
+    ADeconstruction ident args ->
+      T.intercalate " " $ s ident : (printArgument <$> args)
+    ANumberLiteral t -> showT t
+
+printSecondInfix :: Expression -> Text
+printSecondInfix expr' =
+  if isComplex expr'
+    then "\n" <> indent2 (printExpression expr')
+    else printExpression expr'
 
 isComplex :: Expression -> Bool
 isComplex expr' =
