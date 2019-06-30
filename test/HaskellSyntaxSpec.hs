@@ -46,13 +46,13 @@ haskellSyntaxSpecs =
                 Declaration
                   Nothing
                   (ne "double")
-                  [ne "a"]
+                  [AIdentifier $ ne "a"]
                   (Infix Multiply (Identifier (ne "a")) (Number 2))
               , Function $
                 Declaration
                   Nothing
                   (ne "half")
-                  [ne "a"]
+                  [AIdentifier $ ne "a"]
                   (Infix Divide (Identifier (ne "a")) (Number 2))
               ]
       parseResult `shouldBe` Right expected
@@ -65,7 +65,7 @@ haskellSyntaxSpecs =
                 Declaration
                   Nothing
                   (ne "test")
-                  [ne "n"]
+                  [AIdentifier $ ne "n"]
                   (Case
                      (Identifier (ne "n"))
                      [ (ANumberLiteral 0, Number 1)
@@ -85,7 +85,7 @@ haskellSyntaxSpecs =
                 Declaration
                   Nothing
                   (ne "test")
-                  [ne "n"]
+                  [AIdentifier $ ne "n"]
                   (Case
                      (Identifier (ne "n"))
                      [ (ANumberLiteral 0, Number 1)
@@ -96,7 +96,7 @@ haskellSyntaxSpecs =
                 Declaration
                   Nothing
                   (ne "double")
-                  [ne "x"]
+                  [AIdentifier $ ne "x"]
                   (Infix Multiply (Identifier (ne "x")) (Number 2))
               ]
       parseResult `shouldBe` Right expected
@@ -172,7 +172,7 @@ haskellSyntaxSpecs =
                               (Concrete (ne "Int")) :|
                             [Concrete (ne "Int")])))
                      (ne "main")
-                     [ne "m"]
+                     [AIdentifier (ne "m")]
                      (Case
                         (Identifier (ne "m"))
                         (( ADeconstruction (ne "Just") [AIdentifier (ne "n")]

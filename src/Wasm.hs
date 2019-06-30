@@ -165,19 +165,19 @@ allocateBytes (Module topLevel bytes) extraBytes =
 
 compileDeclaration :: Module -> TypedDeclaration -> Module
 compileDeclaration m (TypedDeclaration name args _ fexpr) =
-  let (m', expr') = compileExpression m (Locals (Set.fromList (fst <$> args))) fexpr
-      func = Func $ Declaration name (fst <$> args) expr'
+  let (m', expr') = compileExpression m (Locals (Set.fromList (concatMap assignments (fst <$> args)))) fexpr
+      func = Func $ Declaration name (concatMap assignments (fst <$> args)) expr'
    in addTopLevel m' [func]
 
 compileInlineDeclaration ::
      Module -> Locals -> TypedDeclaration -> (Maybe Expression, Module)
 compileInlineDeclaration m (Locals l) (TypedDeclaration name args _ fexpr) =
-  let (m', expr') = compileExpression m (Locals (Set.union l (Set.fromList (fst <$> args)))) fexpr
+  let (m', expr') = compileExpression m (Locals (Set.union l (Set.fromList (concatMap assignments (fst <$> args))))) fexpr
    in case args of
         [] -> (Just $ SetLocal name expr', m')
         _ ->
           ( Nothing
-          , addTopLevel m' [Func $ Declaration name (fst <$> args) expr'])
+          , addTopLevel m' [Func $ Declaration name (concatMap assignments (fst <$> args)) expr'])
 
 compileExpressions ::
      Module -> NonEmpty TypedExpression -> (Module, [Expression])
@@ -274,11 +274,11 @@ compileExpression m locals@(Locals l) fexpr =
                   (NamedCall (ident "malloc") [Const $ (1 + length args) * 4])
               , Call (ident "i32.store") [GetLocal (ident "address"), Const tag]
               ] <>
-              (store <$> zip [1 ..] args) <>
+              (store <$> zip [1 ..] (concatMap assignments (fst <$> args))) <>
               [GetLocal (ident "address")])))
   where
-    store :: (Int, (F.Ident, T.Type)) -> Expression
-    store (offset, (i, _)) =
+    store :: (Int, F.Ident) -> Expression
+    store (offset, i) =
       Call
         (ident "i32.store")
         [ Call
@@ -312,6 +312,11 @@ compileExpression m locals@(Locals l) fexpr =
              in (m''', exprs <> [(aExpr, bExpr)])
           (m', exprs) = foldl compilePattern (m, []) patterns
        in (m', NE.fromList exprs)
+
+assignments :: F.Argument -> [F.Ident]
+assignments (F.AIdentifier i) = [i]
+assignments (F.ADeconstruction i _) = [i]
+assignments (F.ANumberLiteral _) = []
 
 compileCaseExpression :: Module -> Locals -> T.TypedExpression -> (Module, Expression)
 compileCaseExpression m locals fexpr =
@@ -414,11 +419,11 @@ printWasmExpr expr =
     SetLocal name expr' ->
       "(set_local $" <> F.s name <> " " <> printWasmExpr expr' <> ")"
     Call name args ->
-      "(" <> F.s name <> "\n" <> indent2 (Text.unlines (printWasmExpr <$> args)) <>
+      "(" <> F.s name <> "\n" <> indent2 (Text.intercalate "\n" (printWasmExpr <$> args)) <>
       "\n)"
     NamedCall name args ->
       "(call $" <> F.s name <> "\n" <>
-      indent2 (Text.unlines (printWasmExpr <$> args)) <>
+      indent2 (Text.intercalate "\n" (printWasmExpr <$> args)) <>
       "\n)"
     If conditional a b ->
       Text.unlines

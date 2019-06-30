@@ -87,7 +87,7 @@ newtype TypedModule =
 
 data TypedDeclaration =
   TypedDeclaration Ident
-                   [(Ident, Type)]
+                   [(Argument, Type)]
                    Type
                    TypedExpression
   deriving (Show, Eq, G.Generic)
@@ -112,7 +112,7 @@ data TypedExpression
   | BetweenParens TypedExpression
   | String' Text
   | ADTConstruction Int
-                    [(Ident, Type)]
+                    [(Argument, Type)]
   deriving (Show, Eq, G.Generic)
 
 data TypedArgument
@@ -238,10 +238,10 @@ checkTopLevel state topLevel =
             Right t -> addDeclarations state [t]
             Left e -> addError state e
 
-constructorTypesToArgList :: ConstructorType -> [(Ident, Type)]
+constructorTypesToArgList :: ConstructorType -> [(Argument, Type)]
 constructorTypesToArgList ct =
   case ct of
-    CTConcrete i -> [(i, Num)]
+    CTConcrete i -> [(AIdentifier i, Num)]
     CTApplied a (CTConcrete i)
       | s i == T.toLower (s i) -> constructorTypesToArgList a
     CTApplied a b -> constructorTypesToArgList a <> constructorTypesToArgList b
@@ -303,7 +303,7 @@ checkDeclaration state declaration = do
   let (Declaration _ name args expr) = declaration
   annotationTypes <- inferDeclarationType state declaration
   let argsWithTypes = zip args (NE.toList annotationTypes)
-  let locals = makeDeclaration <$> argsWithTypes
+  let locals = concatMap makeDeclarations argsWithTypes
   expectedReturnType <-
     (case (NE.drop (length args) annotationTypes) of
        (x:xs) -> Right $ collapseTypes (x :| xs)
@@ -333,9 +333,26 @@ checkDeclaration state declaration = do
                   printType (typeOf a))
   actualReturnType >>= typeChecks
   where
-    makeDeclaration (i, t) =
-      let d = TypedDeclaration i [] t (TypeChecker.Identifier t i d)
-       in d
+    makeDeclarations :: (Argument, Type) -> [TypedDeclaration]
+    makeDeclarations (a, t) =
+      case a of
+        AIdentifier i -> [d t i]
+        ADeconstruction constructor args ->
+          let declaration = find m (typedDeclarations state)
+              m (TypedDeclaration name _ _ _) = name == constructor
+              declarations (TypedDeclaration _ declarationArgs _ _) =
+                concatMap makeDeclarations $ zip args (snd <$> declarationArgs)
+          in  maybe [] declarations declaration
+        ANumberLiteral _ -> []
+        where
+          d t i =
+            let d' = TypedDeclaration i [] t (TypeChecker.Identifier t i d')
+            in d'
+
+assignments :: Argument -> [Ident]
+assignments (AIdentifier i) = [i]
+assignments (ADeconstruction _ args) = concatMap assignments args
+assignments (ANumberLiteral _) = []
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =

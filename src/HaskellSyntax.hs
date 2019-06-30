@@ -120,10 +120,13 @@ pCase = L.indentBlock scn p'
     p' = indentArgs <$> (symbol "case" *> sc *> expr <* scn <* symbol "of")
     makeCase caseExpr = return . Case caseExpr . NE.fromList
     indentArgs caseExpr = L.IndentSome Nothing (makeCase caseExpr) caseBranch
-    caseBranch = (,) <$> caseArgument <*> (sc *> symbol "->" *> scn *> expr)
-    caseArgument = sc *> (deconstruction <|> identifier <|> numberLiteral)
-    caseArguments = many (try caseArgument)
-    deconstruction = ADeconstruction <$> pCapitalizedIdent <*> caseArguments
+    caseBranch = (,) <$> pArgument <*> (sc *> symbol "->" *> scn *> expr)
+
+pArgument :: Parser Argument
+pArgument = sc *> (deconstruction <|> identifier <|> numberLiteral)
+  where
+    deconstruction = ADeconstruction <$> pCapitalizedIdent <*> arguments
+    arguments = many (try pArgument)
     identifier = AIdentifier <$> pLowerCaseIdent
     numberLiteral = ANumberLiteral <$> L.decimal
 
@@ -161,12 +164,15 @@ pConstructor = Constructor <$> (sc *> pIdent) <*> maybeParse pConstructorType
 function :: Parser TopLevel
 function = Function <$> declaration
 
+possiblyParenthesized :: Parser a -> Parser a
+possiblyParenthesized p = parens' p <|> p
+
 declaration :: Parser Declaration
 declaration = Declaration <$> maybeAnnotation <*> name <*> args <*> expr'
   where
     maybeAnnotation = maybeParse annotation
     name = sc *> pIdent
-    args = many (try (sc *> pIdent))
+    args = many (try (sc *> possiblyParenthesized pArgument))
     expr' = sc *> symbol "=" *> scn *> expr <* scn
 
 annotation :: Parser Annotation
@@ -222,7 +228,9 @@ printDataType (ADT name generics constructors) =
 
 printDeclaration :: Declaration -> Text
 printDeclaration (Declaration annotation' name args expr') =
-  annotationAsString <> T.unwords ([s name] <> (s <$> args) <> ["="]) <> "\n" <>
+  annotationAsString <>
+  T.unwords ([s name] <> (printArgument Parens <$> args) <> ["="]) <>
+  "\n" <>
   indent2 (printExpression expr')
   where
     annotationAsString = maybe "" printAnnotation annotation'
@@ -265,7 +273,7 @@ printPatterns patterns = T.unlines $ NE.toList $ printPattern <$> patterns
 
 printPattern :: (Argument, Expression) -> Text
 printPattern (argument, resultExpr) =
-  printArgument argument <> " -> " <> printSecondInfix resultExpr
+  printArgument NoParens argument <> " -> " <> printSecondInfix resultExpr
 
 printLet :: NonEmpty Declaration -> Expression -> Text
 printLet declarations expr' =
@@ -277,13 +285,19 @@ printLet declarations expr' =
     , [indent2 $ printExpression expr']
     ]
 
-printArgument :: Argument -> Text
-printArgument a =
-  case a of
-    AIdentifier i -> s i
-    ADeconstruction ident args ->
-      T.intercalate " " $ s ident : (printArgument <$> args)
-    ANumberLiteral t -> showT t
+data UseParensForDeconstruction
+  = NoParens
+  | Parens
+
+printArgument :: UseParensForDeconstruction -> Argument -> Text
+printArgument parens a =
+  case (parens, a) of
+    (_, AIdentifier i) -> s i
+    (_, ANumberLiteral t) -> showT t
+    (Parens, ADeconstruction ident args) ->
+      "(" <> (T.intercalate " " $ s ident : (printArgument Parens <$> args)) <> ")"
+    (NoParens, ADeconstruction ident args) ->
+      T.intercalate " " $ s ident : (printArgument Parens <$> args)
 
 printSecondInfix :: Expression -> Text
 printSecondInfix expr' =

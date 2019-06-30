@@ -44,7 +44,7 @@ data ADT =
 data Declaration =
   Declaration (Maybe Annotation)
               Ident
-              [Ident]
+              [Argument]
               Expression
   deriving (Show, Eq, G.Generic)
 

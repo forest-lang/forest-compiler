@@ -177,7 +177,7 @@ genDeclaration :: Gen Declaration
 genDeclaration = do
   name <- genIdent
   annotation <- genMaybe genAnnotation
-  args <- listOf genIdent
+  args <- listOf genArgument
   expr <- genExpression
   return $ Declaration annotation name args expr
 
@@ -246,11 +246,12 @@ genArgument =
   oneof
     [ ANumberLiteral <$> arbitrarySizedNatural
     , AIdentifier <$>
-      (Ident <$> genNEString `suchThat` (not . firstLetterIsCapitalized))
+      (Ident <$> genNEString `suchThat` (both permittedWord (not . firstLetterIsCapitalized)))
     ]
   where
     firstLetterIsCapitalized (NonEmptyString x _) =
       T.singleton x == (T.toUpper . T.singleton $ x)
+    both a b = \x -> a x && b x
 
 genCaseBranch :: Gen (Argument, Expression)
 genCaseBranch = genArgument >*< genExpression
