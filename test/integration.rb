@@ -169,10 +169,23 @@ def run_tests
         Empty -> 0
 
     main :: Int
-    main = sum (Cons 5 Empty)
+    main = sum (Cons 5 (Cons 10 Empty))
   FOREST
 
-  testCode('generic_list_sum_fold', code, 5)
+  testCode('generic_list_sum_fold', code, 15)
+
+  code = <<~FOREST
+    data Player
+      = Player Int Int
+
+    getX :: Player -> Int
+    getX (Player x y) = x
+
+    main :: Int
+    main = getX (Player 30 20)
+  FOREST
+
+  testCode('adt_deconstruction_function', code, 30)
 
   puts 'Integration tests ran successfully!'
 end

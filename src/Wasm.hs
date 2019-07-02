@@ -163,16 +163,22 @@ allocateBytes (Module topLevel bytes) extraBytes =
 
 compileDeclaration :: Module -> TypedDeclaration -> Module
 compileDeclaration m (TypedDeclaration name args _ fexpr) =
-  let parameters = concatMap assignments (fst <$> args)
+  let parameters = concatMap (fst <$> assignments) (fst <$> args)
+      deconstruction = concatMap (snd <$> assignments) (fst <$> args)
       locals = Locals (Set.fromList parameters)
       (m', expr') = compileExpression m locals fexpr
-      func = Func $ Declaration name parameters expr'
+      func =
+        Func $
+        Declaration
+          name
+          parameters
+          (Sequence $ NE.fromList (deconstruction <> [expr']))
    in addTopLevel m' [func]
 
 compileInlineDeclaration ::
      Module -> Locals -> TypedDeclaration -> (Maybe Expression, Module)
 compileInlineDeclaration m (Locals l) (TypedDeclaration name args _ fexpr) =
-  let parameters = concatMap assignments (fst <$> args)
+  let parameters = concatMap (fst <$> assignments) (fst <$> args)
       locals = Locals (Set.union l (Set.fromList parameters))
       (m', expr') = compileExpression m locals fexpr
    in case args of
@@ -295,8 +301,8 @@ compileCase m locals caseFexpr patterns =
           (m', exprs) = foldl compilePattern (m, []) patterns
        in (m', NE.fromList exprs)
 
-compileADTConstruction :: (Functor t, Foldable t) =>
-                          Int -> t (F.Argument, b) -> Expression
+compileADTConstruction ::
+     (Functor t, Foldable t) => Int -> t (F.Argument, b) -> Expression
 compileADTConstruction tag args =
   Sequence
     (NE.fromList
@@ -305,7 +311,7 @@ compileADTConstruction tag args =
             (NamedCall (ident "malloc") [Const $ (1 + length args) * 4])
         , Call (ident "i32.store") [GetLocal (ident "address"), Const tag]
         ] <>
-        (store <$> zip [1 ..] (concatMap assignments (fst <$> args))) <>
+        (store <$> zip [1 ..] (concatMap (fst <$> assignments) (fst <$> args))) <>
         [GetLocal (ident "address")]))
   where
     store :: (Int, F.Ident) -> Expression
@@ -336,23 +342,32 @@ compileExpression m locals@(Locals l) fexpr =
     T.Case _ caseFexpr patterns -> compileCase m locals caseFexpr patterns
     T.Let declarations fexpr -> compileLet m locals declarations fexpr
     T.String' str -> compileString m str
-    T.ADTConstruction tag args ->
-      (m, compileADTConstruction tag args)
+    T.ADTConstruction tag args -> (m, compileADTConstruction tag args)
 
-assignments :: F.Argument -> [F.Ident]
-assignments (F.AIdentifier i) = [i]
-assignments (F.ADeconstruction i _) = [i]
-assignments (F.ANumberLiteral _) = []
+assignments :: F.Argument -> ([F.Ident], [Expression])
+assignments (F.AIdentifier i) = ([i], [])
+assignments (F.ADeconstruction i args) =
+  ([i], uncurry (compileDeconstructionAssignment i) <$> zip args [1 ..])
+assignments (F.ANumberLiteral _) = ([], [])
+
+compileDeconstructionAssignment :: F.Ident -> F.Argument -> Int -> Expression
+compileDeconstructionAssignment i a n =
+  case a of
+    F.AIdentifier i' ->
+      (SetLocal
+         i'
+         (Call
+            (ident "i32.load")
+            [Call (ident "i32.add") [GetLocal i, Const $ n * 4]]))
+    _ -> Sequence []
 
 compileCaseExpression ::
      Module -> Locals -> T.TypedExpression -> (Module, Expression)
 compileCaseExpression m locals fexpr =
   case fexpr of
-    Identifier t i _ ->
-      case t of
-        T.Applied _ _ -> (m, Call (ident "i32.load") [GetLocal i])
-        T.TL (T.TypeLambda _) -> (m, Call (ident "i32.load") [GetLocal i])
-        _ -> compileExpression m locals fexpr
+    Identifier (T.Applied _ _) i _ -> (m, Call (ident "i32.load") [GetLocal i])
+    Identifier (T.TL (T.TypeLambda _)) i _ ->
+      (m, Call (ident "i32.load") [GetLocal i])
     _ -> compileExpression m locals fexpr
 
 compileArgument ::
