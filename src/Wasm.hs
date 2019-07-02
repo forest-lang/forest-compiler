@@ -458,7 +458,7 @@ printWasmExpr :: Expression -> Text
 printWasmExpr expr =
   case expr of
     Sequence exprs ->
-      Text.intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)
+      "(block (result i32)\n" <> indent2 (Text.intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)) <> "\n)"
     Const n -> "(i32.const " <> showT n <> ")"
     GetLocal name -> "(get_local $" <> F.s name <> ")"
     SetLocal name expr' ->
