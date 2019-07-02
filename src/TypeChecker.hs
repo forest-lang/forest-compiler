@@ -196,34 +196,36 @@ checkDataType state adt@(ADT name generics constructors) =
     returnType = foldl Applied (TL tl) (Generic <$> generics)
     makeDeclaration ::
          (Int, Constructor) -> Either CompileError TypedDeclaration
-    makeDeclaration (tag, (Constructor name types)) =
-      let
-        charToArgument = AIdentifier . ne . T.singleton
-        arguments = zip (charToArgument <$> ['a'..]) (maybe [] constructorTypesToArgList types)
-        declarationFromType x =
-          TypedDeclaration
-             name
-             arguments
-             x
-             (TypeChecker.ADTConstruction
-                tag
-                arguments)
-      in
-        declarationFromType <$> (maybe (Right returnType) constructorType types)
+    makeDeclaration (tag, (Constructor name types')) =
+      let charToArgument = AIdentifier . ne . T.singleton
+          argList =
+            maybe
+              (Right [])
+              (constructorTypesToArgList (types state) errorMessage)
+              types'
+          arguments = zip (charToArgument <$> ['a' ..]) <$> argList
+          declarationFromType x args =
+            TypedDeclaration
+              name
+              args
+              x
+              (TypeChecker.ADTConstruction tag args)
+       in declarationFromType <$>
+          (maybe (Right returnType) constructorType types') <*> arguments
     makeTypeConstructor ::
          (Int, Constructor) -> Either CompileError TypedConstructor
     makeTypeConstructor (tag, (Constructor name types)) =
       TypedConstructor name tag <$> (maybe (Right []) constructorTypes types)
     constructorType :: ConstructorType -> Either CompileError Type
     constructorType t = foldr Lambda returnType <$> (constructorTypes t)
-    errorMessage a = CompileError $ DataTypeError a
+    errorMessage = CompileError $ DataTypeError adt
     constructorTypes :: ConstructorType -> Either CompileError [Type]
     constructorTypes t =
       case t of
         CTConcrete i ->
           case findTypeFromIdent
                  ((Map.insert name returnType) $ types state)
-                 (errorMessage adt)
+                 errorMessage
                  i of
             Right x -> Right [x]
             Left e -> Left e
@@ -242,14 +244,20 @@ checkTopLevel state topLevel =
             Right t -> addDeclarations state [t]
             Left e -> addError state e
 
-constructorTypesToArgList :: ConstructorType -> [Type]
-constructorTypesToArgList ct =
+constructorTypesToArgList ::
+     Map Ident Type
+  -> (Text -> CompileError)
+  -> ConstructorType
+  -> Either CompileError [Type]
+constructorTypesToArgList types compileError ct =
   case ct of
-    CTConcrete _ -> [Num]
+    CTConcrete i -> (\x -> [x]) <$> findTypeFromIdent types compileError i
     CTApplied a (CTConcrete i)
-      | s i == T.toLower (s i) -> constructorTypesToArgList a
-    CTApplied a b -> constructorTypesToArgList a <> constructorTypesToArgList b
-    CTParenthesized ct -> constructorTypesToArgList ct
+      | s i == T.toLower (s i) -> constructorTypesToArgList types compileError a
+    CTApplied a b ->
+      constructorTypesToArgList types compileError a <>
+      constructorTypesToArgList types compileError b
+    CTParenthesized ct -> constructorTypesToArgList types compileError ct
 
 newtype Constraints =
   Constraints (Map Ident Type)
@@ -346,12 +354,12 @@ checkDeclaration state declaration = do
               m (TypedDeclaration name _ _ _) = name == constructor
               declarations (TypedDeclaration _ declarationArgs _ _) =
                 concatMap makeDeclarations $ zip args (snd <$> declarationArgs)
-          in  maybe [] declarations declaration
+           in maybe [] declarations declaration
         ANumberLiteral _ -> []
-        where
-          d t i =
-            let d' = TypedDeclaration i [] t (TypeChecker.Identifier t i d')
-            in d'
+      where
+        d t i =
+          let d' = TypedDeclaration i [] t (TypeChecker.Identifier t i d')
+           in d'
 
 assignments :: Argument -> [Ident]
 assignments (AIdentifier i) = [i]
