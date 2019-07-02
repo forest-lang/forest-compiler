@@ -197,15 +197,19 @@ checkDataType state adt@(ADT name generics constructors) =
     makeDeclaration ::
          (Int, Constructor) -> Either CompileError TypedDeclaration
     makeDeclaration (tag, (Constructor name types)) =
-      (\x ->
-         TypedDeclaration
-           name
-           (maybe [] constructorTypesToArgList types)
-           x
-           (TypeChecker.ADTConstruction
-              tag
-              (maybe [] constructorTypesToArgList types))) <$>
-      (maybe (Right returnType) constructorType types)
+      let
+        charToArgument = AIdentifier . ne . T.singleton
+        arguments = zip (charToArgument <$> ['a'..]) (maybe [] constructorTypesToArgList types)
+        declarationFromType x =
+          TypedDeclaration
+             name
+             arguments
+             x
+             (TypeChecker.ADTConstruction
+                tag
+                arguments)
+      in
+        declarationFromType <$> (maybe (Right returnType) constructorType types)
     makeTypeConstructor ::
          (Int, Constructor) -> Either CompileError TypedConstructor
     makeTypeConstructor (tag, (Constructor name types)) =
@@ -238,10 +242,10 @@ checkTopLevel state topLevel =
             Right t -> addDeclarations state [t]
             Left e -> addError state e
 
-constructorTypesToArgList :: ConstructorType -> [(Argument, Type)]
+constructorTypesToArgList :: ConstructorType -> [Type]
 constructorTypesToArgList ct =
   case ct of
-    CTConcrete i -> [(AIdentifier i, Num)]
+    CTConcrete _ -> [Num]
     CTApplied a (CTConcrete i)
       | s i == T.toLower (s i) -> constructorTypesToArgList a
     CTApplied a b -> constructorTypesToArgList a <> constructorTypesToArgList b
