@@ -1,0 +1,59 @@
+<!DOCTYPE HTML>
+<head>
+</head>
+<body>
+  <canvas width="500" height="500"></canvas>
+</body>
+<script>
+  var canvas = document.querySelector('canvas');
+  var context = canvas.getContext('2d');
+
+  function runGame(exports) {
+    var state = exports.init();
+    var input = exports.NoInput();
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key == 'w') {
+        input = exports.Up();
+      }
+
+      if (event.key == 'a') {
+        input = exports.Left();
+      }
+
+      if (event.key == 's') {
+        input = exports.Down();
+      }
+
+      if (event.key == 'd') {
+        input = exports.Right();
+      }
+    });
+
+    function loop() {
+      state = exports.update(state, input);
+      input = exports.NoInput();
+
+      context.fillStyle = 'white';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+
+      context.fillStyle = 'black';
+      var x = exports.x(state);
+      var y = exports.y(state);
+      context.fillRect(x, y, 50, 50);
+
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  WebAssembly.instantiateStreaming(fetch('output.wasm'), {})
+    .then(results => {
+      console.log('hi');
+      var exports = results.instance.exports;
+      runGame(exports);
+      // Do something with the results!
+    });
+</script>
+

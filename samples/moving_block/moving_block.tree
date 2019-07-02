@@ -1,0 +1,36 @@
+data State
+  = State Int Int
+
+data Input
+  = Up
+  | Down
+  | Left
+  | Right
+  | NoInput
+
+x :: State -> Int
+x (State sx sy) = sx
+
+y :: State -> Int
+y (State sx sy) = sy
+
+update :: State -> Input -> State
+update (State x y) input =
+  let
+    speed :: Int
+    speed = 10
+  in
+    case input of
+      Up ->
+        State x (y - speed)
+      Down ->
+        State x (y + speed)
+      Left ->
+        State (x - speed) y
+      Right ->
+        State (x + speed) y
+      NoInput ->
+        State x y
+
+init :: State
+init = State 50 50
