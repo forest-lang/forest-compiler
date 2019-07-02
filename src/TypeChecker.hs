@@ -567,13 +567,13 @@ inferArgumentType state valueType arg err =
                      showT (args) <>
                      " arg: " <>
                      showT (arg)
+                     -- TODO - make this error message prettier
             Nothing ->
               Left $
               err $
               "no constructor named \"" <> s name <> "\" for " <>
               printType valueType <>
-              " in scope." <>
-              showT (typeLambda)
+              " in scope."
 
 inferDeclarationType ::
      CompileState -> Declaration -> Either CompileError (NE.NonEmpty Type)
