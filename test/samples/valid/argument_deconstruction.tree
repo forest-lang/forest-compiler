@@ -1,0 +1,9 @@
+data Player
+  = Player Int Int
+
+x :: Player -> Int
+x (Player px py) =
+  px
+
+main :: Int
+main = x (Player 50 10)

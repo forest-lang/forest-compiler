@@ -1,0 +1,6 @@
+data Player
+  = Player String Int
+
+main :: Player -> Int
+main (Player x y) =
+  x
