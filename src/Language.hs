@@ -63,6 +63,7 @@ data AnnotationType
 data Expression
   = Identifier Ident
   | Number Int
+  | Float Float
   | Infix OperatorExpr
           Expression
           Expression

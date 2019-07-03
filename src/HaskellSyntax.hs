@@ -62,7 +62,7 @@ expr = makeExprParser (lexeme term) table <?> "expression"
 term :: Parser Expression
 term = L.lineFold scn $ \sc' -> terms >>= pApply sc'
   where
-    terms = choice [pCase, pLet, identifier, parens, number, pString] <?> "term"
+    terms = choice [pCase, pLet, identifier, parens, try float, number, pString] <?> "term"
     pApply sc' e =
       (foldl1 Apply . (:) e <$> (some (try (sc' *> terms)) <* sc)) <|> return e
 
@@ -87,6 +87,14 @@ table =
   , [InfixL (Infix Add <$ char '+')]
   , [InfixL (Infix Subtract <$ char '-')]
   ]
+
+float :: Parser Expression
+float = Float <$> do
+  sc
+  integer <- L.decimal
+  symbol "."
+  fractional <- L.decimal
+  return $ fromIntegral integer + (fromIntegral fractional / 10) * signum (fromIntegral integer)
 
 number :: Parser Expression
 number = Number <$> (sc *> L.decimal)
@@ -250,6 +258,7 @@ printExpression :: Expression -> Text
 printExpression expression =
   case expression of
     Number n -> showT n
+    Float f -> showT f
     Infix op expr' expr'' ->
       T.unwords
         [printExpression expr', operatorToString op, printSecondInfix expr'']

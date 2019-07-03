@@ -68,6 +68,7 @@ data TypedConstructor =
 
 data Type
   = Num
+  | Float' -- TODO a better name, perhaps declare in another module? :(
   | Str
   | Lambda Type
            Type
@@ -97,6 +98,7 @@ data TypedExpression
                Ident
                TypedDeclaration
   | Number Int
+  | Float Float
   | Infix Type
           OperatorExpr
           TypedExpression
@@ -147,7 +149,8 @@ addTypeConstructors state tl constructors =
     }
 
 defaultTypes :: Map Ident Type
-defaultTypes = Map.fromList [(ne "Int", Num), (ne "String", Str)]
+defaultTypes =
+  Map.fromList [(ne "Int", Num), (ne "String", Str), (ne "Float", Float')]
 
 checkModule :: Module -> Either (NonEmpty CompileError) TypedModule
 checkModule (Module topLevels) =
@@ -205,13 +208,10 @@ checkDataType state adt@(ADT name generics constructors) =
               types'
           arguments = zip (charToArgument <$> ['a' ..]) <$> argList
           declarationFromType x args =
-            TypedDeclaration
-              name
-              args
-              x
-              (TypeChecker.ADTConstruction tag args)
+            TypedDeclaration name args x (TypeChecker.ADTConstruction tag args)
        in declarationFromType <$>
-          (maybe (Right returnType) constructorType types') <*> arguments
+          (maybe (Right returnType) constructorType types') <*>
+          arguments
     makeTypeConstructor ::
          (Int, Constructor) -> Either CompileError TypedConstructor
     makeTypeConstructor (tag, (Constructor name types)) =
@@ -378,6 +378,7 @@ typeOf t =
     TypeChecker.Identifier t _ _ -> t
     TypeChecker.Apply t _ _ -> t
     TypeChecker.Number _ -> Num
+    TypeChecker.Float _ -> Float'
     TypeChecker.Infix t _ _ _ -> t
     TypeChecker.Case t _ _ -> t
     TypeChecker.Let _ te -> typeOf te
@@ -521,6 +522,7 @@ inferType :: CompileState -> Expression -> Either CompileError TypedExpression
 inferType state expr =
   case expr of
     Language.Number n -> Right $ TypeChecker.Number n
+    Language.Float f -> Right $ TypeChecker.Float f
     Language.String' s -> Right $ TypeChecker.String' s
     Language.BetweenParens expr -> inferType state expr
     Language.Identifier name -> inferIdentifierType state name compileError
@@ -651,6 +653,7 @@ printType t =
   case t of
     Str -> "String"
     Num -> "Int"
+    Float' -> "Float"
     Lambda a r -> printType a <> " -> " <> printType r
     Applied a b -> printType a <> " " <> printType b
     Generic n -> idToString n
@@ -663,6 +666,7 @@ mapType :: (Type -> Type) -> Type -> Type
 mapType f t =
   case t of
     Num -> f t
+    Float' -> f t
     Str -> f t
     Lambda a b -> f (Lambda (mapType f a) (mapType f b))
     Applied tl t -> f (Applied tl (mapType f t))

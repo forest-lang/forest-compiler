@@ -48,6 +48,7 @@ data TopLevel
 
 data Expression
   = Const Int
+  | FloatConst Float
   | GetLocal F.Ident
   | SetLocal F.Ident
              Expression
@@ -336,6 +337,7 @@ compileExpression m locals@(Locals l) fexpr =
   case fexpr of
     T.Identifier t i d -> (m, compileIdentifer t i d l)
     T.Number n -> (m, Const n)
+    T.Float f -> (m, FloatConst f)
     T.BetweenParens fexpr -> compileExpression m locals fexpr
     T.Infix _ operator a b -> compileInfix m locals operator a b
     T.Apply _ left right -> compileApply m locals left right
@@ -460,6 +462,7 @@ printWasmExpr expr =
     Sequence exprs ->
       "(block (result i32)\n" <> indent2 (Text.intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)) <> "\n)"
     Const n -> "(i32.const " <> showT n <> ")"
+    FloatConst n -> "(f32.const " <> showT n <> ")"
     GetLocal name -> "(get_local $" <> F.s name <> ")"
     SetLocal name expr' ->
       "(set_local $" <> F.s name <> " " <> printWasmExpr expr' <> ")"
