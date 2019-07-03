@@ -204,7 +204,7 @@ checkDataType state adt@(ADT name generics constructors) =
           argList =
             maybe
               (Right [])
-              (constructorTypesToArgList (types state) errorMessage)
+              constructorTypes
               types'
           arguments = zip (charToArgument <$> ['a' ..]) <$> argList
           declarationFromType x args =
@@ -243,21 +243,6 @@ checkTopLevel state topLevel =
        in case result of
             Right t -> addDeclarations state [t]
             Left e -> addError state e
-
-constructorTypesToArgList ::
-     Map Ident Type
-  -> (Text -> CompileError)
-  -> ConstructorType
-  -> Either CompileError [Type]
-constructorTypesToArgList types compileError ct =
-  case ct of
-    CTConcrete i -> (\x -> [x]) <$> findTypeFromIdent types compileError i
-    CTApplied a (CTConcrete i)
-      | s i == T.toLower (s i) -> constructorTypesToArgList types compileError a
-    CTApplied a b ->
-      constructorTypesToArgList types compileError a <>
-      constructorTypesToArgList types compileError b
-    CTParenthesized ct -> constructorTypesToArgList types compileError ct
 
 newtype Constraints =
   Constraints (Map Ident Type)
