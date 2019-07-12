@@ -35,7 +35,7 @@ propParseAndPrint m =
         Left _ -> False
 
 haskellSyntaxSpecs :: SpecWith ()
-haskellSyntaxSpecs =
+haskellSyntaxSpecs = parallel $ do
   describe "Forest haskell syntax" $ do
     it "parses a module with multiple assignments" $ do
       code <- readFixture "multiple-assignments"

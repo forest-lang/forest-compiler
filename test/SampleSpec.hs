@@ -32,7 +32,7 @@ validSampleSpecs = do
     filter (not . isPrefixOf ".") <$>
     getDirectoryContents "./test/samples/valid"
   specs <- foldl1 (flip (>>)) <$> mapM testFileIsValid files
-  return $ describe "valid samples" specs
+  return $ parallel $ describe "valid samples" specs
   where
     testFileIsValid :: FilePath -> IO (SpecWith ())
     testFileIsValid path = do

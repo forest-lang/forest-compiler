@@ -221,7 +221,7 @@ typeCheckerSpecs =
         case r of
           Right m -> () <$ checkModule m
           Left err -> error $ "Failed to parse module: " ++ show err
-   in describe "Type checker" $ do
+   in parallel $ describe "Type checker" $ do
         it "checks valid expressions" $
           checkResult (parseModule valid) `shouldBe` Right ()
         it "checks valid expressions that use locals" $

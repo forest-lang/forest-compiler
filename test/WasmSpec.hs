@@ -44,7 +44,7 @@ propCodeThatTypeChecksShouldCompile m =
 
 wasmSpecs :: SpecWith ()
 wasmSpecs =
-  describe "wasm code generation" $
+  parallel $ describe "wasm code generation" $
   it "generates valid wasm for any well typed module" $
   withMaxSuccess
     1000
