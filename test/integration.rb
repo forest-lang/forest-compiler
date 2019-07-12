@@ -187,6 +187,13 @@ def run_tests
 
   testCode('adt_deconstruction_function', code, 30)
 
+  code = <<~FOREST
+    main :: Float
+    main = 5.0 / 2.0 * 4.0
+  FOREST
+
+  testCode('float_infix_ops', code, 10)
+
   puts 'Integration tests ran successfully!'
 end
 

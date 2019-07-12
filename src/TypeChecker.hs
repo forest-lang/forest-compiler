@@ -423,15 +423,18 @@ inferInfixType ::
   -> (Text -> CompileError)
   -> Either CompileError TypedExpression
 inferInfixType state op a b compileError =
-  let expected =
-        case op of
-          StringAdd -> Str
-          _ -> Num
+  let validInfix a b =
+        case (op, b, typeEq a b) of
+          (StringAdd, Str, True) -> Just Str
+          (StringAdd, _, _) -> Nothing
+          (_, Num, True) -> Just Num
+          (_, Float', True) -> Just Float'
+          (_, _, _) -> Nothing
       types = (,) <$> inferType state a <*> inferType state b
       checkInfix (a, b) =
-        if typeOf a `typeEq` expected && typeOf b `typeEq` expected
-          then Right (TypeChecker.Infix expected op a b)
-          else Left $
+        case validInfix (typeOf a) (typeOf b) of
+          Just returnType -> Right (TypeChecker.Infix returnType op a b)
+          Nothing -> Left $
                compileError
                  ("No function exists with type " <> printType (typeOf a) <> " " <>
                   operatorToString op <>

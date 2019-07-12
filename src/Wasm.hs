@@ -35,9 +35,15 @@ data Module =
   Module [TopLevel]
          BytesAllocated
 
+data WasmType
+  = I32
+  | F32
+  deriving (Show, Eq, G.Generic)
+
 data Declaration =
   Declaration F.Ident
               [F.Ident]
+              WasmType
               Expression
   deriving (Show, Eq, G.Generic)
 
@@ -59,7 +65,7 @@ data Expression
   | If Expression
        Expression
        (Maybe Expression)
-  | Sequence (NE.NonEmpty Expression)
+  | Sequence WasmType (NE.NonEmpty Expression)
   deriving (Show, Eq)
 
 data Locals =
@@ -163,29 +169,38 @@ allocateBytes (Module topLevel bytes) extraBytes =
   Module topLevel (bytes + extraBytes)
 
 compileDeclaration :: Module -> TypedDeclaration -> Module
-compileDeclaration m (TypedDeclaration name args _ fexpr) =
+compileDeclaration m (TypedDeclaration name args fType fexpr) =
   let parameters = concatMap (fst <$> assignments) (fst <$> args)
       deconstruction = concatMap (snd <$> assignments) (fst <$> args)
       locals = Locals (Set.fromList parameters)
       (m', expr') = compileExpression m locals fexpr
+      wasmType = forestTypeToWasmType fType
       func =
         Func $
         Declaration
           name
           parameters
-          (Sequence $ NE.fromList (deconstruction <> [expr']))
+          wasmType
+          (Sequence wasmType $ NE.fromList (deconstruction <> [expr']))
    in addTopLevel m' [func]
 
 compileInlineDeclaration ::
      Module -> Locals -> TypedDeclaration -> (Maybe Expression, Module)
-compileInlineDeclaration m (Locals l) (TypedDeclaration name args _ fexpr) =
+compileInlineDeclaration m (Locals l) (TypedDeclaration name args forestType fexpr) =
   let parameters = concatMap (fst <$> assignments) (fst <$> args)
       locals = Locals (Set.union l (Set.fromList parameters))
       (m', expr') = compileExpression m locals fexpr
    in case args of
         [] -> (Just $ SetLocal name expr', m')
         _ ->
-          (Nothing, addTopLevel m' [Func $ Declaration name parameters expr'])
+          (Nothing, addTopLevel m' [Func $ Declaration name parameters (forestTypeToWasmType forestType) expr'])
+
+forestTypeToWasmType  :: T.Type -> WasmType
+forestTypeToWasmType fType =
+  case fType of
+    Num -> I32
+    Float' -> F32
+    _  -> I32
 
 compileExpressions ::
      Module -> NonEmpty TypedExpression -> (Module, [Expression])
@@ -221,9 +236,9 @@ compileInfix m locals operator a b =
   let (m', aExpr) = compileExpression m locals a
       (m'', bExpr) = compileExpression m' locals b
       name = (F.Ident $ F.NonEmptyString 's' "tring_add")
-   in case operator of
-        F.StringAdd -> (m'', NamedCall name [aExpr, bExpr])
-        _ -> (m'', Call (funcForOperator operator) [aExpr, bExpr])
+   in case (operator, T.typeOf b) of
+        (F.StringAdd, T.Str) -> (m'', NamedCall name [aExpr, bExpr])
+        (_, t) -> (m'', Call (funcForOperator operator t) [aExpr, bExpr])
 
 compileApply ::
      Module
@@ -235,7 +250,7 @@ compileApply m locals left right =
   case left of
     T.Apply _ (T.Identifier _ name _) r' ->
       let (m', exprs) = compileExpressions m [right, r']
-       in (m', Sequence $ NE.fromList (exprs <> [NamedCall name []]))
+       in (m', Sequence I32 $ NE.fromList (exprs <> [NamedCall name []]))
     T.Identifier _ name _ ->
       let (m', r) = compileExpression m locals right
        in (m', NamedCall name [r])
@@ -261,7 +276,7 @@ compileLet m locals@(Locals l) declarations fexpr =
         NE.toList $ (\(TypedDeclaration name _ _ _) -> name) <$> declarations
       locals' = Locals $ Set.union l (Set.fromList names)
       (m'', expr') = compileExpression m' locals' fexpr
-   in (m'', Sequence $ NE.fromList (declarationExpressions <> [expr']))
+   in (m'', Sequence I32 $ NE.fromList (declarationExpressions <> [expr']))
 
 compileCase ::
      Module
@@ -305,7 +320,7 @@ compileCase m locals caseFexpr patterns =
 compileADTConstruction ::
      (Functor t, Foldable t) => Int -> t (F.Argument, b) -> Expression
 compileADTConstruction tag args =
-  Sequence
+  Sequence I32
     (NE.fromList
        ([ SetLocal
             (ident "address")
@@ -361,7 +376,7 @@ compileDeconstructionAssignment i a n =
          (Call
             (ident "i32.load")
             [Call (ident "i32.add") [GetLocal i, Const $ n * 4]]))
-    _ -> Sequence []
+    _ -> Sequence I32 []
 
 compileCaseExpression ::
      Module -> Locals -> T.TypedExpression -> (Module, Expression)
@@ -397,7 +412,7 @@ compileArgument m caseFexpr arg =
           localName (TAIdentifier _ ident') = Just ident'
           localName _ = Nothing
           locals = addLocals (mapMaybe localName args) noLocals
-       in (m, Sequence (NE.fromList (assignments <> [Const tag])), locals)
+       in (m, Sequence I32 (NE.fromList (assignments <> [Const tag])), locals)
   where
     caseLocal =
       case caseFexpr of
@@ -407,15 +422,24 @@ compileArgument m caseFexpr arg =
 eq32 :: F.Ident
 eq32 = F.Ident $ F.NonEmptyString 'i' "32.eq"
 
-funcForOperator :: F.OperatorExpr -> F.Ident
-funcForOperator operator =
-  F.Ident . uncurry F.NonEmptyString $
-  case operator of
-    F.Add -> ('i', "32.add")
-    F.Subtract -> ('i', "32.sub")
-    F.Multiply -> ('i', "32.mul")
-    F.Divide -> ('i', "32.div_s")
-    F.StringAdd -> ('s', "tring_add")
+funcForOperator :: F.OperatorExpr -> T.Type -> F.Ident
+funcForOperator operator t =
+  let
+    wasmType =
+      case t of
+        Num -> "i32"
+        Float' -> "f32"
+        _ -> error $ "tried to get a funcForOperator for a non numeric type: " <> (Text.unpack $ T.printType t)
+    op =
+      case (operator, t) of
+        (F.Add, _) -> "add"
+        (F.Subtract, _) -> "sub"
+        (F.Multiply, _) -> "mul"
+        (F.Divide, Float') -> "div"
+        (F.Divide, _) -> "div_s"
+        _ -> error $ "tried to get a funcForOperator for a non numeric type: " <> (Text.unpack $ T.printType t)
+  in
+    ident (wasmType <> "." <> op)
 
 printWasm :: Module -> Text
 printWasm (Module expressions bytesAllocated) =
@@ -439,10 +463,10 @@ printMemory bytes =
 printWasmTopLevel :: TopLevel -> Text
 printWasmTopLevel topLevel =
   case topLevel of
-    Func (Declaration name args body) ->
+    Func (Declaration name args wasmType body) ->
       Text.unlines
         [ "(export \"" <> F.s name <> "\" (func $" <> F.s name <> "))"
-        , printDeclaration (Declaration name args body)
+        , printDeclaration (Declaration name args wasmType body)
         ]
     Data offset str ->
       "(data (i32.const " <> showT offset <> ") \"" <>
@@ -459,8 +483,8 @@ printWasmTopLevel topLevel =
 printWasmExpr :: Expression -> Text
 printWasmExpr expr =
   case expr of
-    Sequence exprs ->
-      "(block (result i32)\n" <> indent2 (Text.intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)) <> "\n)"
+    Sequence wasmType exprs ->
+      "(block (result " <> printWasmType wasmType <> ")\n" <> indent2 (Text.intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)) <> "\n)"
     Const n -> "(i32.const " <> showT n <> ")"
     FloatConst n -> "(f32.const " <> showT n <> ")"
     GetLocal name -> "(get_local $" <> F.s name <> ")"
@@ -482,13 +506,20 @@ printWasmExpr expr =
          ] <>
          [indent2 $ maybe "(i32.const 0)" printWasmExpr b, ")"])
 
+
+printWasmType :: WasmType -> Text
+printWasmType wasmType =
+  case wasmType of
+    I32 -> "i32"
+    F32 -> "f32"
+
 printDeclaration :: Declaration -> Text
-printDeclaration (Declaration name args body) =
+printDeclaration (Declaration name args wasmType body) =
   Text.intercalate
     "\n"
     [ "(func $" <> F.s name <>
       Text.unwords (fmap (\x -> " (param $" <> x <> " i32)") (F.s <$> args)) <>
-      " (result i32) " <>
+      " (result " <> printWasmType wasmType <> ") " <>
       Text.unwords (printLocal <$> locals body)
     , indent2 $ Text.unlines ["(return", indent2 $ printWasmExpr body, ")"]
     , ")"
@@ -498,7 +529,7 @@ printDeclaration (Declaration name args body) =
     locals expr' =
       case expr' of
         SetLocal name _ -> [F.s name]
-        Sequence exprs -> concatMap locals $ NE.toList exprs
+        Sequence _ exprs -> concatMap locals $ NE.toList exprs
         If expr expr' mexpr ->
           locals expr <> locals expr' <> maybe [] locals mexpr
         Call _ exprs -> concatMap locals exprs
