@@ -88,7 +88,7 @@ newtype TypedModule =
 
 data TypedDeclaration =
   TypedDeclaration Ident
-                   [(Argument, Type)]
+                   [TypedArgument]
                    Type
                    TypedExpression
   deriving (Show, Eq, G.Generic)
@@ -114,7 +114,7 @@ data TypedExpression
   | BetweenParens TypedExpression
   | String' Text
   | ADTConstruction Int
-                    [(Argument, Type)]
+                    [TypedArgument]
   deriving (Show, Eq, G.Generic)
 
 data TypedArgument
@@ -200,18 +200,11 @@ checkDataType state adt@(ADT name generics constructors) =
     makeDeclaration ::
          (Int, Constructor) -> Either CompileError TypedDeclaration
     makeDeclaration (tag, (Constructor name types')) =
-      let charToArgument = AIdentifier . ne . T.singleton
-          argList =
-            maybe
-              (Right [])
-              constructorTypes
-              types'
-          arguments = zip (charToArgument <$> ['a' ..]) <$> argList
-          declarationFromType x args =
-            TypedDeclaration name args x (TypeChecker.ADTConstruction tag args)
-       in declarationFromType <$>
-          (maybe (Right returnType) constructorType types') <*>
-          arguments
+        let charToArgument (c, t) = TAIdentifier t $ ne $ T.singleton c
+            argList = maybe (Right []) constructorTypes types'
+            arguments = (fmap charToArgument) <$> ((\x -> zip ['a' ..] x) <$> argList)
+            declarationFromType x args = TypedDeclaration name args x (TypeChecker.ADTConstruction tag args)
+        in declarationFromType <$> (maybe (Right returnType) constructorType types') <*> arguments
     makeTypeConstructor ::
          (Int, Constructor) -> Either CompileError TypedConstructor
     makeTypeConstructor (tag, (Constructor name types)) =
@@ -299,7 +292,8 @@ checkDeclaration ::
 checkDeclaration state declaration = do
   let (Declaration _ name args expr) = declaration
   annotationTypes <- inferDeclarationType state declaration
-  let argsWithTypes = zip args (NE.toList annotationTypes)
+  -- TODO - is sequence right here?
+  argsWithTypes <- sequence $ uncurry (inferArgumentType state undefined) <$> zip  (NE.toList annotationTypes) args
   let locals = concatMap makeDeclarations argsWithTypes
   expectedReturnType <-
     (case (NE.drop (length args) annotationTypes) of
@@ -330,26 +324,21 @@ checkDeclaration state declaration = do
                   printType (typeOf a))
   actualReturnType >>= typeChecks
   where
-    makeDeclarations :: (Argument, Type) -> [TypedDeclaration]
-    makeDeclarations (a, t) =
+    makeDeclarations :: (TypedArgument) -> [TypedDeclaration]
+    makeDeclarations a =
       case a of
-        AIdentifier i -> [d t i]
-        ADeconstruction constructor args ->
+        TAIdentifier t i -> [d t i]
+        TADeconstruction constructor _ args ->
           let declaration = find m (typedDeclarations state)
-              m (TypedDeclaration name _ _ _) = name == constructor
-              declarations (TypedDeclaration _ declarationArgs _ _) =
-                concatMap makeDeclarations $ zip args (snd <$> declarationArgs)
+              m (TypedDeclaration name _ _ _) = name == constructor -- TODO - should probably match on types as well!
+              declarations (TypedDeclaration _ _ _ _) =
+                concatMap makeDeclarations $ args
            in maybe [] declarations declaration
-        ANumberLiteral _ -> []
+        TANumberLiteral _ -> []
       where
         d t i =
           let d' = TypedDeclaration i [] t (TypeChecker.Identifier t i d')
            in d'
-
-assignments :: Argument -> [Ident]
-assignments (AIdentifier i) = [i]
-assignments (ADeconstruction _ args) = concatMap assignments args
-assignments (ANumberLiteral _) = []
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -434,12 +423,13 @@ inferInfixType state op a b compileError =
       checkInfix (a, b) =
         case validInfix (typeOf a) (typeOf b) of
           Just returnType -> Right (TypeChecker.Infix returnType op a b)
-          Nothing -> Left $
-               compileError
-                 ("No function exists with type " <> printType (typeOf a) <> " " <>
-                  operatorToString op <>
-                  " " <>
-                  printType (typeOf b))
+          Nothing ->
+            Left $
+            compileError
+              ("No function exists with type " <> printType (typeOf a) <> " " <>
+               operatorToString op <>
+               " " <>
+               printType (typeOf b))
    in types >>= checkInfix
 
 inferCaseType ::
@@ -454,7 +444,7 @@ inferCaseType state value branches compileError = do
   allBranchesHaveSameType v b
   where
     inferBranch v (a, b) = do
-      a' <- inferArgumentType state (typeOf v) a compileError
+      a' <- inferArgumentType state compileError (typeOf v) a
       let argDeclarations = declarationsFromTypedArgument a'
       b' <- inferType (addDeclarations state argDeclarations) b
       return (a', b')
@@ -525,11 +515,11 @@ inferType state expr =
 
 inferArgumentType ::
      CompileState
+  -> (Text -> CompileError)
   -> Type
   -> Argument
-  -> (Text -> CompileError)
   -> Either CompileError TypedArgument
-inferArgumentType state valueType arg err =
+inferArgumentType state err valueType arg =
   case arg of
     AIdentifier i -> Right $ TAIdentifier valueType i
     ANumberLiteral i ->
@@ -557,7 +547,7 @@ inferArgumentType state valueType arg err =
           m name (TypedConstructor name' _ _) = name == name'
           deconstructionFields fields =
             sequence $
-            (\(a, t) -> inferArgumentType state t a err) <$> zip args fields
+            (\(a, t) -> inferArgumentType state err t a) <$> zip args fields
        in case matchingConstructor of
             Just (TypedConstructor name tag fields) ->
               if length args == length fields

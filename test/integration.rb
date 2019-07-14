@@ -194,6 +194,19 @@ def run_tests
 
   testCode('float_infix_ops', code, 10)
 
+  code = <<~FOREST
+    data Player
+      = Player Float Float
+
+    getX :: Player -> Float
+    getX (Player x y) = x
+
+    main :: Float
+    main = getX (Player 30.0 20.0)
+  FOREST
+
+  testCode('adt_deconstruction_float', code, 10)
+
   puts 'Integration tests ran successfully!'
 end
 
