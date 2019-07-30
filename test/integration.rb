@@ -205,7 +205,7 @@ def run_tests
     main = getX (Player 30.0 20.0)
   FOREST
 
-  testCode('adt_deconstruction_float', code, 10)
+  testCode('adt_deconstruction_float', code, 30)
 
   puts 'Integration tests ran successfully!'
 end

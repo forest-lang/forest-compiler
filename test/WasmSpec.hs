@@ -44,8 +44,47 @@ propCodeThatTypeChecksShouldCompile m =
 
 wasmSpecs :: SpecWith ()
 wasmSpecs =
-  parallel $ describe "wasm code generation" $
-  it "generates valid wasm for any well typed module" $
-  withMaxSuccess
-    1000
-    (property (forAll genModule propCodeThatTypeChecksShouldCompile))
+  parallel $
+  describe "wasm code generation" $ do
+    it "generates valid wasm for any well typed module" $ do
+      withMaxSuccess
+        1000
+        (property (forAll genModule propCodeThatTypeChecksShouldCompile))
+    it "correctly generates functions that return floats" $ do
+      let typedModule =
+            TypedModule
+              [ TypedDeclaration
+                  (Ident (NonEmptyString 'g' "etX"))
+                  [ TADeconstruction
+                      (Ident (NonEmptyString 'P' "layer"))
+                      0
+                      [TAIdentifier Float' (Ident (NonEmptyString 'x' ""))]
+                  ]
+                  (Lambda
+                     (TL (TypeLambda (Ident (NonEmptyString 'P' "layer"))))
+                     Float')
+                  (TypeChecker.Identifier Float' (Ident (NonEmptyString 'x' "")))
+              ]
+       in forestModuleToWasm typedModule `shouldBe`
+          Wasm.Module
+            [ Func
+                (Wasm.Declaration
+                   (Ident (NonEmptyString 'g' "etX"))
+                   [(Ident (NonEmptyString 'P' "layer"), I32)]
+                   F32
+                   (Sequence
+                      F32
+                      (SetLocal
+                         (Ident (NonEmptyString 'x' ""))
+                         F32
+                         (Call
+                            (Ident (NonEmptyString 'f' "32.load"))
+                            [ Call
+                                (Ident (NonEmptyString 'i' "32.add"))
+                                [ GetLocal (Ident (NonEmptyString 'P' "layer"))
+                                , Const 4
+                                ]
+                            ]) :|
+                       [GetLocal (Ident (NonEmptyString 'x' ""))])))
+            ]
+            0

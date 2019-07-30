@@ -84,7 +84,7 @@ newtype TypeLambda =
 
 newtype TypedModule =
   TypedModule [TypedDeclaration]
-  deriving (Show)
+  deriving (Eq, Show)
 
 data TypedDeclaration =
   TypedDeclaration Ident
@@ -96,7 +96,6 @@ data TypedDeclaration =
 data TypedExpression
   = Identifier Type
                Ident
-               TypedDeclaration
   | Number Int
   | Float Float
   | Infix Type
@@ -336,9 +335,7 @@ checkDeclaration state declaration = do
            in maybe [] declarations declaration
         TANumberLiteral _ -> []
       where
-        d t i =
-          let d' = TypedDeclaration i [] t (TypeChecker.Identifier t i d')
-           in d'
+        d t i = TypedDeclaration i [] t (TypeChecker.Identifier t i)
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -349,7 +346,7 @@ lambdaType left right remainder =
 typeOf :: TypedExpression -> Type
 typeOf t =
   case t of
-    TypeChecker.Identifier t _ _ -> t
+    TypeChecker.Identifier t _ -> t
     TypeChecker.Apply t _ _ -> t
     TypeChecker.Number _ -> Num
     TypeChecker.Float _ -> Float'
@@ -395,7 +392,7 @@ inferIdentifierType ::
   -> Either CompileError TypedExpression
 inferIdentifierType state name compileError =
   case find (m name) declarations of
-    Just d@(TypedDeclaration _ _ t _) -> Right $ TypeChecker.Identifier t name d
+    Just (TypedDeclaration _ _ t _) -> Right $ TypeChecker.Identifier t name
     Nothing ->
       Left $
       compileError

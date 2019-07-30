@@ -6,6 +6,9 @@
 module Wasm
   ( Expression(..)
   , Module(..)
+  , WasmType(..)
+  , Declaration(..)
+  , TopLevel(..)
   , printWasm
   , forestModuleToWasm
   ) where
@@ -34,6 +37,7 @@ type BytesAllocated = Int
 data Module =
   Module [TopLevel]
          BytesAllocated
+    deriving (Show, Eq)
 
 data WasmType
   = I32
@@ -51,6 +55,7 @@ data TopLevel
   = Func Declaration
   | Data Int
          Text
+  deriving (Show, Eq)
 
 data Expression
   = Const Int
@@ -176,7 +181,13 @@ compileDeclaration m (TypedDeclaration name args fType fexpr) =
       deconstruction = concatMap (snd <$> assignments) args
       locals = Locals (Set.fromList (fst <$> parameters))
       (m', expr') = compileExpression m locals fexpr
-      wasmType = forestTypeToWasmType fType
+      forestTypeToWasmType' fType =
+        case fType of
+          Lambda _ r -> forestTypeToWasmType' r
+          Num -> I32
+          Float' -> F32
+          _ -> I32
+      wasmType = forestTypeToWasmType' fType
       func =
         Func $
         Declaration
@@ -215,18 +226,17 @@ compileExpressions m = foldl compile (m, [])
        in (m', e : xs)
 
 compileIdentifer ::
-     Type -> F.Ident -> TypedDeclaration -> Set F.Ident -> Expression
-compileIdentifer t i d l =
+     Type -> F.Ident -> Set F.Ident -> Expression
+compileIdentifer t i l =
   case t of
     T.Applied (T.TL (T.TypeLambda _)) (T.Generic (F.Ident _)) ->
       if (Set.member i l)
         then GetLocal i
         else NamedCall i []
     T.TL (T.TypeLambda _) ->
-      case d of
-        T.TypedDeclaration _ [] _ (T.Number 0) -> GetLocal i
-        T.TypedDeclaration _ [] _ (T.ADTConstruction _ []) -> NamedCall i []
-        _ -> error (show d)
+      if (Set.member i l)
+        then GetLocal i
+        else NamedCall i []
     _ -> GetLocal i
 
 compileInfix ::
@@ -252,10 +262,10 @@ compileApply ::
   -> (Module, Expression)
 compileApply m locals left right =
   case left of
-    T.Apply _ (T.Identifier _ name _) r' ->
+    T.Apply t (T.Identifier _ name) r' ->
       let (m', exprs) = compileExpressions m [right, r']
-       in (m', Sequence I32 $ NE.fromList (exprs <> [NamedCall name []]))
-    T.Identifier _ name _ ->
+       in (m', Sequence (forestTypeToWasmType t) $ NE.fromList (exprs <> [NamedCall name []]))
+    T.Identifier _ name ->
       let (m', r) = compileExpression m locals right
        in (m', NamedCall name [r])
     _ -> error $ "do not know what to do with " <> show left
@@ -280,7 +290,7 @@ compileLet m locals@(Locals l) declarations fexpr =
         NE.toList $ (\(TypedDeclaration name _ _ _) -> name) <$> declarations
       locals' = Locals $ Set.union l (Set.fromList names)
       (m'', expr') = compileExpression m' locals' fexpr
-   in (m'', Sequence I32 $ NE.fromList (declarationExpressions <> [expr']))
+   in (m'', Sequence (forestTypeToWasmType (T.typeOf fexpr)) $ NE.fromList (declarationExpressions <> [expr']))
 
 compileCase ::
      Module
@@ -356,7 +366,7 @@ compileString m str =
 compileExpression :: Module -> Locals -> TypedExpression -> (Module, Expression)
 compileExpression m locals@(Locals l) fexpr =
   case fexpr of
-    T.Identifier t i d -> (m, compileIdentifer t i d l)
+    T.Identifier t i -> (m, compileIdentifer t i l)
     T.Number n -> (m, Const n)
     T.Float f -> (m, FloatConst f)
     T.BetweenParens fexpr -> compileExpression m locals fexpr
@@ -393,8 +403,8 @@ compileCaseExpression ::
      Module -> Locals -> T.TypedExpression -> (Module, Expression)
 compileCaseExpression m locals fexpr =
   case fexpr of
-    Identifier (T.Applied _ _) i _ -> (m, Call (ident "i32.load") [GetLocal i])
-    Identifier (T.TL (T.TypeLambda _)) i _ ->
+    Identifier (T.Applied _ _) i -> (m, Call (ident "i32.load") [GetLocal i])
+    Identifier (T.TL (T.TypeLambda _)) i ->
       (m, Call (ident "i32.load") [GetLocal i])
     _ -> compileExpression m locals fexpr
 
@@ -430,7 +440,7 @@ compileArgument m caseFexpr arg =
   where
     caseLocal =
       case caseFexpr of
-        T.Identifier _ name _ -> GetLocal name
+        T.Identifier _ name -> GetLocal name
         _ -> Const 0
 
 eq32 :: F.Ident
