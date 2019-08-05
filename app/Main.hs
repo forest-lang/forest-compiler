@@ -41,7 +41,7 @@ main = do
       contents <- TIO.readFile filename
       let (printText, exitCode) =
             case compile contents of
-              Success w -> (TIO.putStrLn w, ExitSuccess)
+              Success compiledWast -> (TIO.putStrLn compiledWast, ExitSuccess)
               ParseErr err ->
                 (TIO.hPutStrLn stderr $ reportParseError filename contents err, ExitFailure 1)
               CompileErr errors ->
@@ -53,15 +53,15 @@ main = do
     ["format", filename] -> do
       contents <- TIO.readFile filename
       case format contents of
-        Right a ->
-          TIO.writeFile filename a >> TIO.putStrLn "Formatted successfully."
+        Right formattedCode ->
+          TIO.writeFile filename formattedCode >> TIO.putStrLn "Formatted successfully."
         Left err ->
           (TIO.hPutStrLn stderr $ reportParseError filename contents err) >>
           exitWith (ExitFailure 1)
     ["check", filename] -> do
       contents <- TIO.readFile filename
       let (printText, exitCode) =
-            case check contents of
+            case typeCheck contents of
               Success _ -> (TIO.putStrLn "No errors found.", ExitSuccess)
               ParseErr err ->
                 (TIO.hPutStrLn stderr $ reportParseError filename contents err, ExitFailure 1)
@@ -75,23 +75,23 @@ main = do
   where
     printError (CompileError error message) =
       case error of
-        ExpressionError expr ->
+        ExpressionError expression ->
           "Encountered a type error in an expression:\n\n" <>
-          indent2 (printExpression expr) <>
+          indent2 (printExpression expression) <>
           "\n\n" <>
           message
-        DeclarationError decl ->
+        DeclarationError declaration ->
           "Encountered a type error in a declaration:\n\n" <>
-          indent2 (printDeclaration decl) <>
+          indent2 (printDeclaration declaration) <>
           "\n\n" <>
           message
-        DataTypeError dt ->
+        DataTypeError dataType ->
           "Encountered a type error in a datatype:\n\n" <>
-          indent2 (printDataType dt) <>
+          indent2 (printDataType dataType) <>
           "\n\n" <>
           message
 
 reportParseError :: String -> Text -> ParseError' -> Text
-reportParseError filename contents err =
+reportParseError filename contents parseError =
   "Syntax error in " <> pack filename <> "\n" <>
-  pack (parseErrorPretty' (unpack contents) err)
+  pack (parseErrorPretty' (unpack contents) parseError)

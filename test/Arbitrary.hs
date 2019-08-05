@@ -66,7 +66,7 @@ instance Arbitrary Text where
   shrink s = T.pack <$> shrink (T.unpack s)
 
 permittedWord :: NonEmptyString -> Bool
-permittedWord (NonEmptyString x xs) = T.singleton x <> xs `notElem` rws
+permittedWord (NonEmptyString x xs) = T.singleton x <> xs `notElem` reservedWords
 
 instance Arbitrary NonEmptyString where
   arbitrary = genNEString

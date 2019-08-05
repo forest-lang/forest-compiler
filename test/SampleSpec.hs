@@ -39,7 +39,7 @@ validSampleSpecs = do
       contents <- TIO.readFile $ "./test/samples/valid/" <> path
       return $
         it (path <> " is valid") $
-          case check contents of
+          case typeCheck contents of
             Success _ -> True
             ParseErr _ -> False
             CompileErr _ -> False
@@ -57,7 +57,7 @@ invalidSampleSpecs = do
       contents <- TIO.readFile $ "./test/samples/invalid/" <> path
       return $
         it (path <> " is not valid") $
-          case check contents of
+          case typeCheck contents of
             Success _ -> False
             ParseErr _ -> True
             CompileErr _ -> True

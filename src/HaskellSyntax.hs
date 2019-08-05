@@ -5,9 +5,9 @@ module HaskellSyntax
   , printModule
   , parseModule
   , ParseError'
-  , rws
+  , reservedWords
   , s
-  , expr
+  , parseExpr
   , annotation
   , pType
   , dataType
@@ -25,93 +25,117 @@ import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
 import Data.Semigroup
 import Data.Text (Text, intercalate)
-import qualified Data.Text as T
+import qualified Data.Text as Text
 import Data.Void (Void)
 
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import qualified Text.Megaparsec.Char.Lexer as L
+import qualified Text.Megaparsec.Char.Lexer as Lexer
 import Text.Megaparsec.Expr
 
 showT :: Show a => a -> Text
-showT = T.pack . show
+showT = Text.pack . show
 
 type Parser = Parsec Void Text
 
 type ParseError' = ParseError Char Void
 
-lineComment :: Parser ()
-lineComment = L.skipLineComment "#"
-
-scn :: Parser ()
-scn = L.space space1 lineComment Text.Megaparsec.empty <?> "whitespace"
-
-sc :: Parser ()
-sc =
-  L.space (void $ takeWhile1P Nothing f) lineComment Text.Megaparsec.empty <?>
-  "whitespace"
-  where
-    f x = x == ' ' || x == '\t'
-
+-- Parser combinators
 lexeme :: Parser a -> Parser a
-lexeme = L.lexeme sc
-
-expr :: Parser Expression
-expr = makeExprParser (lexeme term) table <?> "expression"
-
-term :: Parser Expression
-term = L.lineFold scn $ \sc' -> terms >>= pApply sc'
-  where
-    terms = choice [pCase, pLet, identifier, parens, try float, number, pString] <?> "term"
-    pApply sc' e =
-      (foldl1 Apply . (:) e <$> (some (try (sc' *> terms)) <* sc)) <|> return e
-
-pString :: Parser Expression
-pString =
-  String' . T.pack <$> between (string "\"") (string "\"") (many $ notChar '"')
+lexeme = Lexer.lexeme whiteSpace
 
 symbol :: Text -> Parser Text
-symbol = L.symbol sc
-
-parens :: Parser Expression
-parens = BetweenParens <$> parens' expr
+symbol = Lexer.symbol whiteSpace
 
 parens' :: Parser a -> Parser a
-parens' = between (symbol "(" *> scn) (scn <* symbol ")")
+parens' =
+  between
+    (symbol "(" *> whiteSpaceWithNewlines)
+    (whiteSpaceWithNewlines <* symbol ")")
 
-table :: [[Operator Parser Expression]]
-table =
-  [ [InfixL (Infix Divide <$ char '/')]
-  , [InfixL (Infix Multiply <$ char '*')]
-  , [InfixL (Infix StringAdd <$ symbol "++")]
-  , [InfixL (Infix Add <$ char '+')]
-  , [InfixL (Infix Subtract <$ char '-')]
-  ]
+possiblyParenthesized :: Parser a -> Parser a
+possiblyParenthesized parser = parens' parser <|> parser
+
+maybeParse :: Parser a -> Parser (Maybe a)
+maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack
+
+-- Parsers
+whiteSpace :: Parser ()
+whiteSpace =
+  Lexer.space
+    (void $ takeWhile1P Nothing charIsWhiteSpace)
+    lineComment
+    Text.Megaparsec.empty <?>
+  "whitespace"
+  where
+    charIsWhiteSpace char = char == ' ' || char == '\t'
+
+whiteSpaceWithNewlines :: Parser ()
+whiteSpaceWithNewlines =
+  Lexer.space space1 lineComment Text.Megaparsec.empty <?> "whitespace"
+
+lineComment :: Parser ()
+lineComment = Lexer.skipLineComment "#"
+
+parseTerm :: Parser Expression
+parseTerm =
+  Lexer.lineFold whiteSpaceWithNewlines $ \whiteSpace' ->
+    terms >>= pApply whiteSpace'
+  where
+    terms =
+      choice [pCase, pLet, identifier, parens, try float, number, parseString] <?>
+      "term"
+    pApply whiteSpace' expression =
+      (foldl1 Apply . (:) expression <$>
+       (some (try (whiteSpace' *> terms)) <* whiteSpace)) <|>
+      return expression
+
+parseExpr :: Parser Expression
+parseExpr = makeExprParser (lexeme parseTerm) table <?> "expression"
+  where
+    table :: [[Operator Parser Expression]]
+    table =
+      [ [InfixL (Infix Divide <$ char '/')]
+      , [InfixL (Infix Multiply <$ char '*')]
+      , [InfixL (Infix StringAdd <$ symbol "++")]
+      , [InfixL (Infix Add <$ char '+')]
+      , [InfixL (Infix Subtract <$ char '-')]
+      ]
+
+parseString :: Parser Expression
+parseString =
+  String' . Text.pack <$> between (string "\"") (string "\"") (many $ notChar '"')
+
+parens :: Parser Expression
+parens = BetweenParens <$> parens' parseExpr
 
 float :: Parser Expression
-float = Float <$> do
-  sc
-  integer <- L.decimal
-  symbol "."
-  fractional <- L.decimal
-  return $ fromIntegral integer + (fromIntegral fractional / 10) * signum (fromIntegral integer)
+float =
+  Float <$> do
+    whiteSpace
+    integer <- Lexer.decimal
+    symbol "."
+    fractional <- Lexer.decimal
+    return $
+      fromIntegral integer +
+      (fromIntegral fractional / 10) * signum (fromIntegral integer)
 
 number :: Parser Expression
-number = Number <$> (sc *> L.decimal)
+number = Number <$> (whiteSpace *> Lexer.decimal)
 
-rws :: [Text] -- list of reserved words
-rws = ["case", "of", "let"]
+reservedWords :: [Text] -- list of reserved words
+reservedWords = ["case", "of", "let"]
 
 makeIdent :: Parser Char -> Parser Char -> Parser Ident
-makeIdent firstLetter rest = T.pack <$> p >>= check -- TODO - can we make p return Text?
+makeIdent firstLetter rest = Text.pack <$> p >>= check -- TODO - can we make p return Text?
   where
     p = (:) <$> firstLetter <*> many rest
-    check x =
-      if x `elem` rws
-        then fail $ "keyword " <> show x <> " cannot be an identifier"
-        else case x of
+    check text =
+      if text `elem` reservedWords
+        then fail $ "keyword " <> show text <> " cannot be an identifier"
+        else case text of
                "" -> fail "identifier must be longer than zero characters"
-               _ -> return $ Ident $ NonEmptyString (T.head x) (T.tail x)
+               _ -> return $ Ident $ NonEmptyString (Text.head text) (Text.tail text)
 
 pIdent :: Parser Ident
 pIdent = makeIdent letterChar alphaNumChar
@@ -123,93 +147,107 @@ pLowerCaseIdent :: Parser Ident
 pLowerCaseIdent = makeIdent lowerChar alphaNumChar
 
 pCase :: Parser Expression
-pCase = L.indentBlock scn p'
+pCase = Lexer.indentBlock whiteSpaceWithNewlines parseCaseStart
   where
-    p' = indentArgs <$> (symbol "case" *> sc *> expr <* scn <* symbol "of")
+    parseCaseStart =
+      indentArgs <$>
+      (symbol "case" *> whiteSpace *> parseExpr <* whiteSpaceWithNewlines <*
+       symbol "of")
     makeCase caseExpr = return . Case caseExpr . NE.fromList
-    indentArgs caseExpr = L.IndentSome Nothing (makeCase caseExpr) caseBranch
-    caseBranch = (,) <$> pArgument <*> (sc *> symbol "->" *> scn *> expr)
+    indentArgs caseExpr = Lexer.IndentSome Nothing (makeCase caseExpr) caseBranch
+    caseBranch =
+      (,) <$> pArgument <*>
+      (whiteSpace *> symbol "->" *> whiteSpaceWithNewlines *> parseExpr)
 
 pArgument :: Parser Argument
-pArgument = sc *> (deconstruction <|> identifier <|> numberLiteral)
+pArgument =
+  whiteSpace *>
+  possiblyParenthesized (deconstruction <|> identifier <|> numberLiteral)
   where
     deconstruction = ADeconstruction <$> pCapitalizedIdent <*> arguments
     arguments = many (try pArgument)
     identifier = AIdentifier <$> pLowerCaseIdent
-    numberLiteral = ANumberLiteral <$> L.decimal
+    numberLiteral = ANumberLiteral <$> Lexer.decimal
 
 pLet :: Parser Expression
-pLet = Let <$> pDeclarations <* symbol "in" <* scn <*> expr
+pLet =
+  Let <$> pDeclarations <* symbol "in" <* whiteSpaceWithNewlines <*> parseExpr
   where
-    pDeclarations = L.indentBlock scn p
-    p = do
+    pDeclarations = Lexer.indentBlock whiteSpaceWithNewlines parseLetDeclarations
+    parseLetDeclarations = do
       _ <- symbol "let"
-      return $ L.IndentSome Nothing (return . NE.fromList) declaration
+      return $ Lexer.IndentSome Nothing (return . NE.fromList) declaration
 
 identifier :: Parser Expression
 identifier = Identifier <$> pIdent
 
-tld :: Parser TopLevel
-tld = L.nonIndented scn (dataType <|> function)
+topLevelDeclaration :: Parser TopLevel
+topLevelDeclaration =
+  Lexer.nonIndented whiteSpaceWithNewlines (dataType <|> function)
 
 dataType :: Parser TopLevel
 dataType = DataType <$> (ADT <$> name <*> generics <*> (equals *> constructors))
   where
-    name = symbol "data" *> sc *> pIdent
-    equals = (scn <|> sc) *> symbol "="
-    constructors = (:|) <$> pConstructor <*> otherConstructors <* scn
-    otherConstructors = many (try (scn *> symbol "|" *> sc *> pConstructor))
-    generics = many (sc *> pIdent)
+    name = symbol "data" *> whiteSpace *> pIdent
+    equals = (whiteSpaceWithNewlines <|> whiteSpace) *> symbol "="
+    constructors =
+      (:|) <$> pConstructor <*> otherConstructors <* whiteSpaceWithNewlines
+    otherConstructors =
+      many
+        (try
+           (whiteSpaceWithNewlines *> symbol "|" *> whiteSpace *> pConstructor))
+    generics = many (whiteSpace *> pIdent)
 
 pConstructor :: Parser Constructor
-pConstructor = Constructor <$> (sc *> pIdent) <*> maybeParse pConstructorType
+pConstructor =
+  Constructor <$> (whiteSpace *> pIdent) <*> maybeParse pConstructorType
   where
     pConstructorType = (parens <|> concrete) >>= applied
-    parens = CTParenthesized <$> try (sc *> parens' pConstructorType)
-    concrete = CTConcrete <$> (sc *> pIdent)
-    applied x = CTApplied x <$> pConstructorType <|> return x
+    parens = CTParenthesized <$> try (whiteSpace *> parens' pConstructorType)
+    concrete = CTConcrete <$> (whiteSpace *> pIdent)
+    applied constructorType =
+      CTApplied constructorType <$> pConstructorType <|> return constructorType
 
 function :: Parser TopLevel
 function = Function <$> declaration
 
-possiblyParenthesized :: Parser a -> Parser a
-possiblyParenthesized p = parens' p <|> p
-
 declaration :: Parser Declaration
-declaration = Declaration <$> maybeAnnotation <*> name <*> args <*> expr'
+declaration = Declaration <$> maybeAnnotation <*> name <*> args <*> expression
   where
     maybeAnnotation = maybeParse annotation
-    name = sc *> pIdent
-    args = many (try (sc *> possiblyParenthesized pArgument))
-    expr' = sc *> symbol "=" *> scn *> expr <* scn
+    name = whiteSpace *> pIdent
+    args = many (try (whiteSpace *> possiblyParenthesized pArgument))
+    expression =
+      whiteSpace *> symbol "=" *> whiteSpaceWithNewlines *> parseExpr <*
+      whiteSpaceWithNewlines
 
 annotation :: Parser Annotation
 annotation = Annotation <$> pIdent <*> types
   where
-    types = sc *> symbol "::" *> sc *> annotationTypes
+    types = whiteSpace *> symbol "::" *> whiteSpace *> annotationTypes
 
 annotationTypes :: Parser (NE.NonEmpty AnnotationType)
-annotationTypes = (:|) <$> pType <*> many (sc *> symbol "->" *> pType) <* scn
+annotationTypes =
+  (:|) <$> pType <*> many (whiteSpace *> symbol "->" *> pType) <*
+  whiteSpaceWithNewlines
 
 pType :: Parser AnnotationType
 pType = do
   let typeInParens = parens' (Parenthesized <$> annotationTypes)
       concreteType = Concrete <$> pIdent
-  parts <- some (try (sc *> (typeInParens <|> concreteType)))
+  parts <- some (try (whiteSpace *> (typeInParens <|> concreteType)))
   return $
     case parts of
       [] -> error "well this can't rightly happen"
       [x] -> x
       xs -> foldl1 TypeApplication xs
 
-maybeParse :: Parser a -> Parser (Maybe a)
-maybeParse parser = (Just <$> try parser) <|> Nothing <$ symbol "" -- TODO fix symbol "" hack
-
 parseModule :: Text -> Either ParseError' Module
 parseModule = parse pModule ""
   where
-    pModule = Module <$> many tld <* eof
+    pModule = Module <$> many topLevelDeclaration <* eof
 
+-- Printers
 printModule :: Module -> Text
 printModule (Module topLevel) = intercalate "\n\n" $ printTopLevel <$> topLevel
 
@@ -221,25 +259,26 @@ printTopLevel topLevel =
 
 printDataType :: ADT -> Text
 printDataType (ADT name generics constructors) =
-  "data " <> T.unwords (s <$> name : generics) <> "\n" <>
+  "data " <> Text.unwords (s <$> name : generics) <> "\n" <>
   indent2
     ("= " <>
      (intercalate "\n| " . NE.toList) (printConstructor <$> constructors))
   where
     printConstructor (Constructor name' types) =
       s name' <> " " <> maybe "" printType types
-    printType t =
-      case t of
+    printType constructorType =
+      case constructorType of
         CTConcrete i -> s i
         CTApplied a b -> printType a <> " " <> printType b
-        CTParenthesized t -> "(" <> printType t <> ")"
+        CTParenthesized constructorType ->
+          "(" <> printType constructorType <> ")"
 
 printDeclaration :: Declaration -> Text
-printDeclaration (Declaration annotation' name args expr') =
+printDeclaration (Declaration annotation' name args expression) =
   annotationAsString <>
-  T.unwords ([s name] <> (printArgument Parens <$> args) <> ["="]) <>
+  Text.unwords ([s name] <> (printArgument Parens <$> args) <> ["="]) <>
   "\n" <>
-  indent2 (printExpression expr')
+  indent2 (printExpression expression)
   where
     annotationAsString = maybe "" printAnnotation annotation'
 
@@ -248,50 +287,55 @@ printAnnotation (Annotation name types) =
   s name <> " :: " <> printTypes types <> "\n"
   where
     printTypes types' = intercalate " -> " (NE.toList (printType <$> types'))
-    printType t =
-      case t of
-        Concrete i -> s i
+    printType annotationType =
+      case annotationType of
+        Concrete identifier -> s identifier
         Parenthesized types' -> "(" <> printTypes types' <> ")"
-        TypeApplication t' t'' -> printType t' <> " " <> printType t''
+        TypeApplication leftType rightType ->
+          printType leftType <> " " <> printType rightType
 
 printExpression :: Expression -> Text
 printExpression expression =
   case expression of
-    Number n -> showT n
-    Float f -> showT f
-    Infix op expr' expr'' ->
-      T.unwords
-        [printExpression expr', operatorToString op, printSecondInfix expr'']
+    Number number -> showT number
+    Float float -> showT float
+    Infix operator leftExpression rightExpression ->
+      Text.unwords
+        [ printExpression leftExpression
+        , operatorToString operator
+        , printSecondInfix rightExpression
+        ]
     Identifier name -> s name
-    Apply expr' expr'' -> printExpression expr' <> " " <> printExpression expr''
+    Apply leftExpression rightExpression ->
+      printExpression leftExpression <> " " <> printExpression rightExpression
     Case caseExpr patterns ->
       if isComplex caseExpr
         then "case\n" <> indent2 (printExpression caseExpr) <> "\nof\n" <>
              indent2 (printPatterns patterns)
         else "case " <> printExpression caseExpr <> " of\n" <>
              indent2 (printPatterns patterns)
-    BetweenParens expr' ->
-      if isComplex expr'
-        then "(\n" <> indent2 (printExpression expr') <> "\n)"
-        else "(" <> printExpression expr' <> ")"
-    Let declarations expr' -> printLet declarations expr'
-    String' str -> "\"" <> str <> "\""
+    BetweenParens expression ->
+      if isComplex expression
+        then "(\n" <> indent2 (printExpression expression) <> "\n)"
+        else "(" <> printExpression expression <> ")"
+    Let declarations expression -> printLet declarations expression
+    String' string -> "\"" <> string <> "\""
 
 printPatterns :: NonEmpty (Argument, Expression) -> Text
-printPatterns patterns = T.unlines $ NE.toList $ printPattern <$> patterns
+printPatterns patterns = Text.unlines $ NE.toList $ printPattern <$> patterns
 
 printPattern :: (Argument, Expression) -> Text
-printPattern (argument, resultExpr) =
-  printArgument NoParens argument <> " -> " <> printSecondInfix resultExpr
+printPattern (argument, resultExpression) =
+  printArgument NoParens argument <> " -> " <> printSecondInfix resultExpression
 
 printLet :: NonEmpty Declaration -> Expression -> Text
-printLet declarations expr' =
+printLet declarations expression =
   intercalate "\n" $
   Prelude.concat
     [ ["let"]
     , indent2 . printDeclaration <$> NE.toList declarations
     , ["in"]
-    , [indent2 $ printExpression expr']
+    , [indent2 $ printExpression expression]
     ]
 
 data UseParensForDeconstruction
@@ -299,39 +343,41 @@ data UseParensForDeconstruction
   | Parens
 
 printArgument :: UseParensForDeconstruction -> Argument -> Text
-printArgument parens a =
-  case (parens, a) of
+printArgument parens argument =
+  case (parens, argument) of
     (_, AIdentifier i) -> s i
     (_, ANumberLiteral t) -> showT t
     (Parens, ADeconstruction ident args) ->
-      "(" <> (T.intercalate " " $ s ident : (printArgument Parens <$> args)) <> ")"
+      "(" <> (Text.intercalate " " $ s ident : (printArgument Parens <$> args)) <>
+      ")"
     (NoParens, ADeconstruction ident args) ->
-      T.intercalate " " $ s ident : (printArgument Parens <$> args)
+      Text.intercalate " " $ s ident : (printArgument Parens <$> args)
 
 printSecondInfix :: Expression -> Text
-printSecondInfix expr' =
-  if isComplex expr'
-    then "\n" <> indent2 (printExpression expr')
-    else printExpression expr'
+printSecondInfix expression =
+  if isComplex expression
+    then "\n" <> indent2 (printExpression expression)
+    else printExpression expression
 
 isComplex :: Expression -> Bool
 isComplex expr' =
   case expr' of
     Let {} -> True
     Case {} -> True
-    Infix _ a b -> isComplex a || isComplex b
+    Infix _ leftExpression rightExpression ->
+      isComplex leftExpression || isComplex rightExpression
     _ -> False
 
 indent :: Int -> Text -> Text
-indent level str =
-  intercalate "\n" $ (\line -> T.replicate level " " <> line) <$> T.lines str
+indent level string =
+  intercalate "\n" $ (\line -> Text.replicate level " " <> line) <$> Text.lines string
 
 indent2 :: Text -> Text
 indent2 = indent 2
 
 operatorToString :: OperatorExpr -> Text
-operatorToString op =
-  case op of
+operatorToString operator =
+  case operator of
     Add -> "+"
     Subtract -> "-"
     Multiply -> "*"

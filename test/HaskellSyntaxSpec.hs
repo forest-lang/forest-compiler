@@ -181,7 +181,7 @@ haskellSyntaxSpecs = parallel $ do
               ]
       parseResult `shouldBe` Right expected
     it "prints and reparses arbitrary expressions losslessly" $
-      withMaxSuccess 100 (property propParseAndPrint)
+      withMaxSuccess 200 (property propParseAndPrint)
     describe "annotation type parsing" $ do
       it "correctly parses applications" $
         let expected =

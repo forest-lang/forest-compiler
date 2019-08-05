@@ -3,7 +3,7 @@
 module Compiler
   ( compile
   , format
-  , check
+  , typeCheck
   , Result(..)
   ) where
 
@@ -20,17 +20,17 @@ data Result a
   | CompileErr (NonEmpty CompileError)
   deriving (Show, Functor)
 
-check :: Text -> Result TypedModule
-check s =
-  case parseModule s of
-    Left err -> ParseErr err
-    Right mod ->
-      case checkModule mod of
-        Left err' -> CompileErr err'
-        Right m -> Success m
+typeCheck :: Text -> Result TypedModule
+typeCheck code =
+  case parseModule code of
+    Left parseError -> ParseErr parseError
+    Right forestModule ->
+      case checkModule forestModule of
+        Left compileError -> CompileErr compileError
+        Right typedModule -> Success typedModule
 
 compile :: Text -> Result Text
-compile s = printWasm . forestModuleToWasm <$> check s
+compile code = printWasm . forestModuleToWasm <$> typeCheck code
 
 format :: Text -> Either ParseError' Text
 format s = printModule <$> parseModule s
