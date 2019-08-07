@@ -141,10 +141,10 @@ addTypeLambda state (TypeLambda name) =
 
 addTypeConstructors ::
      CompileState -> TypeLambda -> [TypedConstructor] -> CompileState
-addTypeConstructors state tl constructors =
+addTypeConstructors state typeLambda constructors =
   state
     { typeConstructors =
-        Map.insertWith (++) tl constructors (typeConstructors state)
+        Map.insertWith (++) typeLambda constructors (typeConstructors state)
     }
 
 defaultTypes :: Map Ident Type
@@ -164,66 +164,71 @@ checkModule (Module topLevels) =
            })
       compileState :: CompileState
       compileState = foldl checkTopLevel initialState topLevels
-      e :: Maybe (NonEmpty CompileError)
-      e = nonEmpty $ errors compileState
-   in case e of
-        Just e' -> Left e'
+      possibleErrors :: Maybe (NonEmpty CompileError)
+      possibleErrors = nonEmpty $ errors compileState
+   in case possibleErrors of
+        Just errors -> Left errors
         Nothing -> Right (TypedModule (typedDeclarations compileState))
 
 eitherToArrays :: [Either a b] -> Either [a] [b]
-eitherToArrays e =
-  let (lefts, rights) = partitionEithers e
+eitherToArrays eithers =
+  let (lefts, rights) = partitionEithers eithers
    in case lefts of
         [] -> Right rights
         _ -> Left lefts
 
+-- TODO - make this function a bit easier to read
 checkDataType :: CompileState -> ADT -> CompileState
 checkDataType state adt@(ADT name generics constructors) =
-  let transformConstructors f =
-        eitherToArrays $ (f <$> (zip [0 ..] $ NE.toList constructors))
-      declarations :: Either [CompileError] [TypedDeclaration]
-      declarations = transformConstructors makeDeclaration
-      ctors :: Either [CompileError] [TypedConstructor]
-      ctors = transformConstructors makeTypeConstructor
-   in case (declarations, ctors) of
-        (Right ds, Right cs) ->
-          addTypeConstructors
-            (addDeclarations (addTypeLambda state tl) ds)
-            tl
-            cs
-        (Left errors, _) -> foldl addError state errors
-        (_, Left errors) -> foldl addError state errors
+  case (declarationsResult, constructorsResult) of
+    (Right declarations, Right constructors) ->
+      addTypeConstructors
+        (addDeclarations (addTypeLambda state typeLambda) declarations)
+        typeLambda
+        constructors
+    (Left errors, _) -> foldl addError state errors
+    (_, Left errors) -> foldl addError state errors
   where
-    tl = TypeLambda name
-    returnType = foldl Applied (TL tl) (Generic <$> generics)
+    transformConstructors f =
+      eitherToArrays $ (f <$> (zip [0 ..] $ NE.toList constructors))
+    declarationsResult :: Either [CompileError] [TypedDeclaration]
+    declarationsResult = transformConstructors makeDeclaration
+    constructorsResult :: Either [CompileError] [TypedConstructor]
+    constructorsResult = transformConstructors makeTypeConstructor
+    typeLambda = TypeLambda name
+    returnType = foldl Applied (TL typeLambda) (Generic <$> generics)
     makeDeclaration ::
          (Int, Constructor) -> Either CompileError TypedDeclaration
     makeDeclaration (tag, (Constructor name types')) =
-        let charToArgument (c, t) = TAIdentifier t $ ne $ T.singleton c
-            argList = maybe (Right []) constructorTypes types'
-            arguments = (fmap charToArgument) <$> ((\x -> zip ['a' ..] x) <$> argList)
-            declarationFromType x args = TypedDeclaration name args x (TypeChecker.ADTConstruction tag args)
-        in declarationFromType <$> (maybe (Right returnType) constructorType types') <*> arguments
+      let charToArgument (char, argType) =
+            TAIdentifier argType $ ne $ T.singleton char
+          argList = maybe (Right []) constructorTypes types'
+          arguments = (fmap charToArgument) <$> (zip ['a' ..] <$> argList)
+          declarationFromType t typedArgument =
+            TypedDeclaration name typedArgument t (TypeChecker.ADTConstruction tag typedArgument)
+       in declarationFromType <$>
+          (maybe (Right returnType) constructorType types') <*>
+          arguments
     makeTypeConstructor ::
          (Int, Constructor) -> Either CompileError TypedConstructor
     makeTypeConstructor (tag, (Constructor name types)) =
       TypedConstructor name tag <$> (maybe (Right []) constructorTypes types)
     constructorType :: ConstructorType -> Either CompileError Type
-    constructorType t = foldr Lambda returnType <$> (constructorTypes t)
+    constructorType ct = foldr Lambda returnType <$> (constructorTypes ct)
     errorMessage = CompileError $ DataTypeError adt
     constructorTypes :: ConstructorType -> Either CompileError [Type]
-    constructorTypes t =
-      case t of
-        CTConcrete i ->
+    constructorTypes ct =
+      case ct of
+        CTConcrete identifier ->
           case findTypeFromIdent
                  ((Map.insert name returnType) $ types state)
                  errorMessage
-                 i of
-            Right x -> Right [x]
+                 identifier of
+            Right correctType -> Right [correctType]
             Left e -> Left e
         CTParenthesized (CTApplied (CTConcrete a) (CTConcrete b)) ->
           Right [Applied (TL (TypeLambda a)) (Generic b)]
-        CTParenthesized t -> constructorTypes t
+        CTParenthesized ct -> constructorTypes ct
         CTApplied a b -> (<>) <$> constructorTypes a <*> constructorTypes b
 
 checkTopLevel :: CompileState -> TopLevel -> CompileState
@@ -268,7 +273,7 @@ mergeConstraints (Constraints a) (Constraints b) = Constraints (Map.union a b) -
 -- but that we can coerce a "Nothing :: Maybe a" to "Just 5 :: Maybe Int"
 --
 -- this is possible because the type of Nothing is really forall a. :: Maybe a
--- typeConstraints is currently used for both but that's a bad idea, it's only really good at application
+-- typeConstraints is currentypeLambday used for both but that's a bad idea, it's only really good at application
 typeConstraints :: Type -> Type -> Maybe Constraints
 typeConstraints a b =
   case (a, b) of
@@ -292,7 +297,11 @@ checkDeclaration state declaration = do
   let (Declaration _ name args expr) = declaration
   annotationTypes <- inferDeclarationType state declaration
   -- TODO - is sequence right here?
-  argsWithTypes <- sequence $ uncurry (inferArgumentType state undefined) <$> zip  (NE.toList annotationTypes) args
+  -- TODO - fix undefined
+  argsWithTypes <-
+    sequence $
+    uncurry (inferArgumentType state undefined) <$>
+    zip (NE.toList annotationTypes) args
   let locals = concatMap makeDeclarations argsWithTypes
   expectedReturnType <-
     (case (NE.drop (length args) annotationTypes) of
@@ -306,27 +315,27 @@ checkDeclaration state declaration = do
           (TypeChecker.Number 0)
   let actualReturnType =
         inferType (addDeclarations state (typedDeclaration : locals)) expr
-  let typeChecks a =
-        if typeOf a `typeEq` expectedReturnType -- TODO use typeConstraints here
+  let typeChecks typedExpression =
+        if typeOf typedExpression `typeEq` expectedReturnType -- TODO use typeConstraints here
           then Right $
                TypedDeclaration
                  name
                  argsWithTypes
                  (foldr1 Lambda annotationTypes)
-                 a
+                 typedExpression
           else Left $
                CompileError
                  (DeclarationError declaration)
                  ("Expected " <> s name <> " to return type " <>
                   printType expectedReturnType <>
                   ", but instead got type " <>
-                  printType (typeOf a))
+                  printType (typeOf typedExpression))
   actualReturnType >>= typeChecks
   where
-    makeDeclarations :: (TypedArgument) -> [TypedDeclaration]
-    makeDeclarations a =
-      case a of
-        TAIdentifier t i -> [d t i]
+    makeDeclarations :: TypedArgument -> [TypedDeclaration]
+    makeDeclarations typedArgument =
+      case typedArgument of
+        TAIdentifier t i -> [makeDeclaration t i]
         TADeconstruction constructor _ args ->
           let declaration = find m (typedDeclarations state)
               m (TypedDeclaration name _ _ _) = name == constructor -- TODO - should probably match on types as well!
@@ -334,8 +343,8 @@ checkDeclaration state declaration = do
                 concatMap makeDeclarations $ args
            in maybe [] declarations declaration
         TANumberLiteral _ -> []
-      where
-        d t i = TypedDeclaration i [] t (TypeChecker.Identifier t i)
+    makeDeclaration :: Type -> Ident -> TypedDeclaration
+    makeDeclaration t i = TypedDeclaration i [] t (TypeChecker.Identifier t i)
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -436,9 +445,9 @@ inferCaseType ::
   -> (Text -> CompileError)
   -> Either CompileError TypedExpression
 inferCaseType state value branches compileError = do
-  v <- inferType state value
-  b <- sequence $ inferBranch v <$> branches
-  allBranchesHaveSameType v b
+  typedValue <- inferType state value
+  typedBranches <- sequence $ inferBranch typedValue <$> branches
+  allBranchesHaveSameType typedValue typedBranches
   where
     inferBranch v (a, b) = do
       a' <- inferArgumentType state compileError (typeOf v) a
@@ -535,8 +544,10 @@ inferArgumentType state err valueType arg =
               _ -> Nothing
           typeLambda =
             typeLambdaName valueType >>=
-            (\tlName ->
-               find (\(TypeLambda name') -> tlName == name') (typeLambdas state))
+            (\typeLambdaName ->
+               find
+                 (\(TypeLambda name') -> typeLambdaName == name')
+                 (typeLambdas state))
           constructorsForValue =
             typeLambda >>= flip Map.lookup (typeConstructors state)
           matchingConstructor =
@@ -586,7 +597,8 @@ inferDeclarationType state declaration =
           case a of
             Concrete i ->
               case find (m i) (typeLambdas state) of
-                Just tl -> Applied (TL tl) <$> annotationTypeToType b
+                Just typeLambda ->
+                  Applied (TL typeLambda) <$> annotationTypeToType b
                 Nothing ->
                   Left $
                   compileError $ "Could not find type lambda: " <> idToString i
@@ -644,7 +656,7 @@ mapType f t =
     Float' -> f t
     Str -> f t
     Lambda a b -> f (Lambda (mapType f a) (mapType f b))
-    Applied tl t -> f (Applied tl (mapType f t))
+    Applied typeLambda t -> f (Applied typeLambda (mapType f t))
     Generic _ -> f t
     TL _ -> f t
 
