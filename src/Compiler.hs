@@ -8,6 +8,7 @@ module Compiler
   ) where
 
 import Data.List.NonEmpty (NonEmpty)
+import Debug.Trace (trace)
 import Data.Text (Text)
 
 import HaskellSyntax

@@ -41,14 +41,13 @@ import Data.Void (Void)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
-import Text.Megaparsec.Expr
-
+import Control.Monad.Combinators.Expr
 showT :: Show a => a -> Text
 showT = Text.pack . show
 
 type Parser = StateT LineInformation (ParsecT Void Text Identity)
 
-type ParseError' = ParseError Char Void
+type ParseError' = ParseErrorBundle Text Void
 
 type SourceRange = (SourcePos, SourcePos)
 
@@ -118,9 +117,9 @@ parseTerm =
 parseExpr :: Parser Expression
 parseExpr = do
   _ <- whiteSpace
-  startPos <- getPosition
+  startPos <- getSourcePos
   expression <- makeExprParser (lexeme parseTerm) table <?> "expression"
-  endPos <- getPosition
+  endPos <- getSourcePos
   modify (setExpressionPosition expression (startPos, endPos))
   return expression
   where
@@ -136,7 +135,7 @@ parseExpr = do
 parseString :: Parser Expression
 parseString =
   String' . Text.pack <$>
-  between (string "\"") (string "\"") (many $ notChar '"')
+  between (string "\"") (string "\"") (many $ anySingleBut '"')
 
 parens :: Parser Expression
 parens = BetweenParens <$> parens' parseExpr
@@ -220,9 +219,9 @@ identifier = Identifier <$> pIdent
 topLevelDeclaration :: Parser TopLevel
 topLevelDeclaration = do
   _ <- whiteSpaceWithNewlines
-  startPos <- getPosition
+  startPos <- getSourcePos
   topLevel <- Lexer.nonIndented whiteSpaceWithNewlines (dataType <|> function)
-  endPos <- getPosition
+  endPos <- getSourcePos
   modify (setTopLevelPosition topLevel (startPos, endPos))
   return topLevel
 

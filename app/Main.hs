@@ -17,7 +17,7 @@ import Safe
 import System.Environment
 import System.Exit
 import System.IO
-import Text.Megaparsec
+import Text.Megaparsec hiding (chunk)
 import Text.Megaparsec.Error
 import Text.RawString.QQ
 
@@ -51,7 +51,7 @@ main = do
             case compile contents of
               Success compiledWast -> (TIO.putStrLn compiledWast, ExitSuccess)
               ParseErr err ->
-                ( TIO.hPutStrLn stderr $ reportParseError filename contents err
+                ( TIO.hPutStrLn stderr $ reportParseError filename err
                 , ExitFailure 1)
               CompileErr errors ->
                 let errorChunks :: [[Chunk Text]]
@@ -69,7 +69,7 @@ main = do
           TIO.writeFile filename formattedCode >>
           TIO.putStrLn "Formatted successfully."
         Left err ->
-          (TIO.hPutStrLn stderr $ reportParseError filename contents err) >>
+          (TIO.hPutStrLn stderr $ reportParseError filename err) >>
           exitWith (ExitFailure 1)
     ["check", filename] -> do
       contents <- TIO.readFile filename
@@ -77,7 +77,7 @@ main = do
             case typeCheck contents of
               Success _ -> (TIO.putStrLn "No errors found.", ExitSuccess)
               ParseErr err ->
-                ( TIO.hPutStrLn stderr $ reportParseError filename contents err
+                ( TIO.hPutStrLn stderr $ reportParseError filename err
                 , ExitFailure 1)
               CompileErr errors ->
                 let errorChunks :: [[Chunk Text]]
@@ -158,7 +158,7 @@ printChunks chunks = do
   printer <- byteStringMakerFromEnvironment
   mapM_ (BS.hPut stderr) . chunksToByteStrings printer $ chunks
 
-reportParseError :: String -> Text -> ParseError' -> Text
-reportParseError filename contents parseError =
+reportParseError :: String -> ParseError' -> Text
+reportParseError filename parseError =
   "Syntax error in " <> pack filename <> "\n" <>
-  pack (parseErrorPretty' (unpack contents) parseError)
+  pack (errorBundlePretty parseError)
