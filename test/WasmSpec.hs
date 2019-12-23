@@ -88,3 +88,56 @@ wasmSpecs =
                        [GetLocal (Ident (NonEmptyString 'x' ""))])))
             ]
             0
+    describe "assignment" $ do
+      it "generates appropriate instructions for destructuring args" $
+        let input =
+              TADeconstruction (ident "Player") 0 [TAIdentifier Num (ident "x")]
+            expectedLocals = [(ident "Player", I32)]
+            expectedInstructions =
+              [ SetLocal
+                  (ident "x")
+                  I32
+                  (Call
+                     (ident "i32.load")
+                     [ Call
+                         (ident "i32.add")
+                         [GetLocal (ident "Player"), Const 4]
+                     ])
+              ]
+            (locals, instructions) = assignments input
+         in do locals `shouldBe` expectedLocals
+               instructions `shouldBe` expectedInstructions
+      it "generates appropriate instructions for destructuring nested args" $
+        let input =
+              TADeconstruction
+                (ident "Player")
+                0
+                [ TADeconstruction
+                    (ident "Age")
+                    0
+                    [TAIdentifier Num (ident "age")]
+                ]
+            expectedLocals = [(ident "Player", I32)]
+            expectedInstructions =
+              [ SetLocal
+                  (ident "Age")
+                  I32
+                  (Call
+                     (ident "i32.load")
+                     [ Call
+                         (ident "i32.add")
+                         [GetLocal (ident "Player"), Const 4] -- TODO how does this even work. is it just looking up the wr
+                     ])
+              , SetLocal
+                  (ident "age")
+                  I32
+                  (Call
+                     (ident "i32.load")
+                     [ Call
+                         (ident "i32.add")
+                         [GetLocal (ident "Age"), Const 4]
+                     ])
+              ]
+            (locals, instructions) = assignments input
+         in do locals `shouldBe` expectedLocals
+               instructions `shouldBe` expectedInstructions

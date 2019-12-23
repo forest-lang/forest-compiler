@@ -207,6 +207,24 @@ def run_tests
 
   testCode('adt_deconstruction_float', code, 30)
 
+  code = <<~FOREST
+    data Vector2
+      = Vector2 Float Float
+
+    data Player
+      = Player Vector2
+
+    getX :: Player -> Float
+    getX (Player (Vector2 x y)) = x
+
+    main :: Float
+    main = getX (Player (Vector2 30.0 20.0))
+  FOREST
+
+  testCode('nested_deconstruction', code, 30)
+
+  # TODO - adt decontruction with two things with the same type - duplicate local name
+
   puts 'Integration tests ran successfully!'
 end
 

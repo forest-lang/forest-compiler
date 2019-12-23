@@ -1,0 +1,14 @@
+data Vector2
+  = Vector2 Float Float
+
+data Player
+  = Player Vector2 Vector2
+
+getX :: Player -> Float
+getX (Player (Vector2 x y) velocity) =
+  x
+
+main :: Float
+main =
+  getX (Player (Vector2 30.0 20.0) (Vector2 0.0 0.0))
+

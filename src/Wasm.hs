@@ -11,6 +11,8 @@ module Wasm
   , TopLevel(..)
   , printWasm
   , forestModuleToWasm
+  , assignments
+  , ident
   ) where
 
 import qualified Language as F
@@ -37,7 +39,7 @@ type BytesAllocated = Int
 data Module =
   Module [TopLevel]
          BytesAllocated
-    deriving (Show, Eq)
+  deriving (Show, Eq)
 
 data WasmType
   = I32
@@ -225,8 +227,7 @@ compileExpressions m = foldl compile (m, [])
       let (m', e) = compileExpression m (Locals Set.empty) te
        in (m', e : xs)
 
-compileIdentifer ::
-     Type -> F.Ident -> Set F.Ident -> Expression
+compileIdentifer :: Type -> F.Ident -> Set F.Ident -> Expression
 compileIdentifer t i l =
   case t of
     T.Applied (T.TL (T.TypeLambda _)) (T.Generic (F.Ident _)) ->
@@ -264,7 +265,9 @@ compileApply m locals left right =
   case left of
     T.Apply t (T.Identifier _ name) r' ->
       let (m', exprs) = compileExpressions m [right, r']
-       in (m', Sequence (forestTypeToWasmType t) $ NE.fromList (exprs <> [NamedCall name []]))
+       in ( m'
+          , Sequence (forestTypeToWasmType t) $
+            NE.fromList (exprs <> [NamedCall name []]))
     T.Identifier _ name ->
       let (m', r) = compileExpression m locals right
        in (m', NamedCall name [r])
@@ -290,7 +293,9 @@ compileLet m locals@(Locals l) declarations fexpr =
         NE.toList $ (\(TypedDeclaration name _ _ _) -> name) <$> declarations
       locals' = Locals $ Set.union l (Set.fromList names)
       (m'', expr') = compileExpression m' locals' fexpr
-   in (m'', Sequence (forestTypeToWasmType (T.typeOf fexpr)) $ NE.fromList (declarationExpressions <> [expr']))
+   in ( m''
+      , Sequence (forestTypeToWasmType (T.typeOf fexpr)) $
+        NE.fromList (declarationExpressions <> [expr']))
 
 compileCase ::
      Module
@@ -380,24 +385,34 @@ compileExpression m locals@(Locals l) fexpr =
 assignments :: (T.TypedArgument) -> ([(F.Ident, WasmType)], [Expression])
 assignments (T.TAIdentifier t i) = ([(i, forestTypeToWasmType t)], [])
 assignments (T.TADeconstruction i _ args) =
-  ( [(i, I32)] , uncurry (compileDeconstructionAssignment i) <$> zip args [1 ..])
+  ( [(i, I32)]
+  , concatMap (uncurry (compileDeconstructionAssignment i)) (zip args [1 ..]))
 assignments (T.TANumberLiteral _) = ([], [])
 
--- TODO - the type that is passed in here is the type of the data record's pointer, which  is i32
---        it should be the type of the field, but we don't seem to have that  information
---        perhaps as a starting point we could pass through typedarguments
+argType :: T.TypedArgument -> [(F.Ident, WasmType)]
+argType (T.TAIdentifier t i) = [(i, forestTypeToWasmType t)]
+argType (T.TANumberLiteral _) = []
+argType (T.TADeconstruction i _ args) = [(i, I32)] <> concatMap argType args
+
+
 compileDeconstructionAssignment ::
-     F.Ident -> T.TypedArgument -> Int -> Expression
+     F.Ident -> T.TypedArgument -> Int -> [Expression]
 compileDeconstructionAssignment i a n =
   case a of
     T.TAIdentifier t i' ->
-      (SetLocal
-         i'
-         (forestTypeToWasmType t)
-         (Call
-            (ident (printWasmType (forestTypeToWasmType t) <> ".load"))
-            [Call (ident "i32.add") [GetLocal i, Const $ n * 4]]))
-    _ -> error $ "hi" <> show a
+      pure
+        $(SetLocal
+            i'
+            (forestTypeToWasmType t)
+            (Call
+               (ident (printWasmType (forestTypeToWasmType t) <> ".load"))
+               [Call (ident "i32.add") [GetLocal i, Const $ n * 4]]))
+    T.TANumberLiteral _ -> mempty
+    T.TADeconstruction i' _ args ->
+      [SetLocal i' I32 (Call (ident "i32.load") [Call (ident "i32.add") [GetLocal i, Const $ n * 4]])] <>
+       concatMap
+         (uncurry (compileDeconstructionAssignment i'))
+         (zip args [1 ..])
 
 compileCaseExpression ::
      Module -> Locals -> T.TypedExpression -> (Module, Expression)
