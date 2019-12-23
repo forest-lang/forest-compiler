@@ -4,21 +4,29 @@
 
 module Main where
 
-import Data.List.NonEmpty (toList)
+import qualified Data.ByteString as BS
+import Data.List (intersperse)
+import Data.List.NonEmpty (NonEmpty, toList)
 import Data.Maybe
 import Data.Semigroup
-import Data.Text
+import Data.Text (Text, intercalate, pack, strip, unpack)
+import qualified Data.Text as Text
 import qualified Data.Text.IO as TIO
+import Rainbow hiding ((<>))
 import Safe
 import System.Environment
 import System.Exit
 import System.IO
+import Text.Megaparsec
 import Text.Megaparsec.Error
 import Text.RawString.QQ
 
 import Compiler
 import HaskellSyntax
 import TypeChecker
+
+showT :: Show a => a -> Text
+showT = Text.pack . show
 
 usage :: Text
 usage =
@@ -43,18 +51,23 @@ main = do
             case compile contents of
               Success compiledWast -> (TIO.putStrLn compiledWast, ExitSuccess)
               ParseErr err ->
-                (TIO.hPutStrLn stderr $ reportParseError filename contents err, ExitFailure 1)
+                ( TIO.hPutStrLn stderr $ reportParseError filename contents err
+                , ExitFailure 1)
               CompileErr errors ->
-                (TIO.hPutStrLn stderr $  (intercalate "\n\n-----------\n\n" . toList $
-                   printError <$> errors) <>
-                  "\n"
-                , ExitFailure 2)
+                let errorChunks :: [[Chunk Text]]
+                    errorChunks = toList $ printError contents <$> errors
+                    divider = [chunk "\n\n-----------\n\n"]
+                    chunks =
+                      intersperse divider errorChunks <>
+                      [[chunk ("\n" :: Text)]]
+                 in (printChunks $ concat chunks, ExitFailure 2)
       printText >> exitWith exitCode
     ["format", filename] -> do
       contents <- TIO.readFile filename
       case format contents of
         Right formattedCode ->
-          TIO.writeFile filename formattedCode >> TIO.putStrLn "Formatted successfully."
+          TIO.writeFile filename formattedCode >>
+          TIO.putStrLn "Formatted successfully."
         Left err ->
           (TIO.hPutStrLn stderr $ reportParseError filename contents err) >>
           exitWith (ExitFailure 1)
@@ -64,32 +77,86 @@ main = do
             case typeCheck contents of
               Success _ -> (TIO.putStrLn "No errors found.", ExitSuccess)
               ParseErr err ->
-                (TIO.hPutStrLn stderr $ reportParseError filename contents err, ExitFailure 1)
+                ( TIO.hPutStrLn stderr $ reportParseError filename contents err
+                , ExitFailure 1)
               CompileErr errors ->
-                ( TIO.hPutStrLn stderr $ (intercalate "\n\n-----------\n\n" . toList $
-                   printError <$> errors) <>
-                  "\n"
-                , ExitFailure 2)
+                let errorChunks :: [[Chunk Text]]
+                    errorChunks = toList $ printError contents <$> errors
+                    divider = [chunk "\n\n-----------\n\n"]
+                    chunks =
+                      intersperse divider errorChunks <>
+                      [[chunk ("\n" :: Text)]]
+                 in (printChunks $ concat chunks, ExitFailure 2)
       printText >> exitWith exitCode
     _ -> TIO.hPutStrLn stderr usage >> exitFailure
   where
-    printError (CompileError error message) =
+    positionText p =
+      case p of
+        Just (start, end) ->
+          Text.pack (sourcePosPretty start <> "-" <> sourcePosPretty end)
+        Nothing -> ""
+    printError contents (CompileError error maybeSourceRange message) =
       case error of
         ExpressionError expression ->
-          "Encountered a type error in an expression:\n\n" <>
-          indent2 (printExpression expression) <>
-          "\n\n" <>
-          message
+          case maybeSourceRange of
+            Just (start, end) ->
+              let contextRangeStart = unPos (sourceLine start) - 2
+                  contextRangeEnd = unPos (sourceLine end) + 1
+                  contentLines = Text.lines contents
+                  colorLine line =
+                    let (lineStart, remainder) =
+                          Text.splitAt (unPos (sourceColumn start) + 3) line
+                        (highlight, lineEnd) = Text.splitAt (unPos (sourceColumn end) - unPos (sourceColumn start)) remainder
+                     in [ chunk lineStart
+                        , chunk highlight & underline & fore brightRed
+                        , chunk lineEnd
+                        ]
+                  color lineNumber line =
+                    if lineNumber >= unPos (sourceLine start) &&
+                       lineNumber <= unPos (sourceLine end)
+                      then colorLine line
+                      else [chunk line]
+                  contextLines =
+                    concatMap
+                      (\(lineNumber, line) ->
+                         color
+                           lineNumber
+                           (showT lineNumber <> " | " <> line <> "\n"))
+                      (filter
+                         (\(i, _) ->
+                            i >= contextRangeStart && i <= contextRangeEnd)
+                         (zip [1 ..] contentLines))
+               in [chunk $ "Error: ", chunk $ message <> "\n"] <> contextLines
+            Nothing ->
+              [ chunk $
+                "Encountered a type error in an expression:\n" <> "\n" <>
+                indent2 (printExpression expression) <>
+                "\n\n" <>
+                message
+              ]
         DeclarationError declaration ->
-          "Encountered a type error in a declaration:\n\n" <>
-          indent2 (printDeclaration declaration) <>
-          "\n\n" <>
-          message
+          [ chunk $
+            "Encountered a type error in a declaration:\n" <>
+            positionText maybeSourceRange <>
+            "\n" <>
+            indent2 (printDeclaration declaration) <>
+            "\n\n" <>
+            message
+          ]
         DataTypeError dataType ->
-          "Encountered a type error in a datatype:\n\n" <>
-          indent2 (printDataType dataType) <>
-          "\n\n" <>
-          message
+          [ chunk $
+            "Encountered a type error in a datatype:\n" <>
+            positionText maybeSourceRange <>
+            "\n" <>
+            indent2 (printDataType dataType) <>
+            "\n\n" <>
+            message
+          ]
+
+printChunks :: [Chunk Text] -> IO ()
+printChunks chunks = do
+  printer <- byteStringMakerFromEnvironment
+  mapM_ (BS.hPut stderr) . chunksToByteStrings printer $ chunks
 
 reportParseError :: String -> Text -> ParseError' -> Text
 reportParseError filename contents parseError =

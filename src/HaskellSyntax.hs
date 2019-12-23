@@ -1,11 +1,15 @@
+
 {-# LANGUAGE OverloadedStrings #-}
 
 module HaskellSyntax
   ( printExpression
   , printModule
   , parseModule
+  , parseModuleWithLineInformation
   , ParseError'
+  , Parser
   , reservedWords
+  , SourceRange
   , s
   , parseExpr
   , annotation
@@ -14,6 +18,7 @@ module HaskellSyntax
   , operatorToString
   , printDeclaration
   , indent2
+  , LineInformation(..)
   , printDataType
   ) where
 
@@ -23,6 +28,11 @@ import Control.Monad (void)
 import Data.Functor.Identity ()
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.State.Lazy
+import Data.Map (Map)
+import Data.Functor.Identity
+import qualified Data.Map as Map
 import Data.Semigroup
 import Data.Text (Text, intercalate)
 import qualified Data.Text as Text
@@ -36,9 +46,24 @@ import Text.Megaparsec.Expr
 showT :: Show a => a -> Text
 showT = Text.pack . show
 
-type Parser = Parsec Void Text
+type Parser = StateT LineInformation (ParsecT Void Text Identity)
 
 type ParseError' = ParseError Char Void
+
+type SourceRange = (SourcePos, SourcePos)
+
+data LineInformation = LineInformation
+  { expressions :: Map Expression SourceRange
+  , topLevels :: Map TopLevel SourceRange
+  } deriving (Show, Eq)
+
+setTopLevelPosition :: TopLevel -> SourceRange -> LineInformation -> LineInformation
+setTopLevelPosition tl pos (LineInformation expressions topLevels) =
+  LineInformation expressions (Map.insert tl pos topLevels)
+
+setExpressionPosition :: Expression -> SourceRange -> LineInformation -> LineInformation
+setExpressionPosition expression pos (LineInformation expressions topLevels) =
+  LineInformation (Map.insert expression pos expressions) topLevels
 
 -- Parser combinators
 lexeme :: Parser a -> Parser a
@@ -91,7 +116,13 @@ parseTerm =
       return expression
 
 parseExpr :: Parser Expression
-parseExpr = makeExprParser (lexeme parseTerm) table <?> "expression"
+parseExpr = do
+  _ <- whiteSpace
+  startPos <- getPosition
+  expression <- makeExprParser (lexeme parseTerm) table <?> "expression"
+  endPos <- getPosition
+  modify (setExpressionPosition expression (startPos, endPos))
+  return expression
   where
     table :: [[Operator Parser Expression]]
     table =
@@ -104,7 +135,8 @@ parseExpr = makeExprParser (lexeme parseTerm) table <?> "expression"
 
 parseString :: Parser Expression
 parseString =
-  String' . Text.pack <$> between (string "\"") (string "\"") (many $ notChar '"')
+  String' . Text.pack <$>
+  between (string "\"") (string "\"") (many $ notChar '"')
 
 parens :: Parser Expression
 parens = BetweenParens <$> parens' parseExpr
@@ -135,7 +167,9 @@ makeIdent firstLetter rest = Text.pack <$> p >>= check -- TODO - can we make p r
         then fail $ "keyword " <> show text <> " cannot be an identifier"
         else case text of
                "" -> fail "identifier must be longer than zero characters"
-               _ -> return $ Ident $ NonEmptyString (Text.head text) (Text.tail text)
+               _ ->
+                 return $
+                 Ident $ NonEmptyString (Text.head text) (Text.tail text)
 
 pIdent :: Parser Ident
 pIdent = makeIdent letterChar alphaNumChar
@@ -154,7 +188,8 @@ pCase = Lexer.indentBlock whiteSpaceWithNewlines parseCaseStart
       (symbol "case" *> whiteSpace *> parseExpr <* whiteSpaceWithNewlines <*
        symbol "of")
     makeCase caseExpr = return . Case caseExpr . NE.fromList
-    indentArgs caseExpr = Lexer.IndentSome Nothing (makeCase caseExpr) caseBranch
+    indentArgs caseExpr =
+      Lexer.IndentSome Nothing (makeCase caseExpr) caseBranch
     caseBranch =
       (,) <$> pArgument <*>
       (whiteSpace *> symbol "->" *> whiteSpaceWithNewlines *> parseExpr)
@@ -173,7 +208,8 @@ pLet :: Parser Expression
 pLet =
   Let <$> pDeclarations <* symbol "in" <* whiteSpaceWithNewlines <*> parseExpr
   where
-    pDeclarations = Lexer.indentBlock whiteSpaceWithNewlines parseLetDeclarations
+    pDeclarations =
+      Lexer.indentBlock whiteSpaceWithNewlines parseLetDeclarations
     parseLetDeclarations = do
       _ <- symbol "let"
       return $ Lexer.IndentSome Nothing (return . NE.fromList) declaration
@@ -182,8 +218,13 @@ identifier :: Parser Expression
 identifier = Identifier <$> pIdent
 
 topLevelDeclaration :: Parser TopLevel
-topLevelDeclaration =
-  Lexer.nonIndented whiteSpaceWithNewlines (dataType <|> function)
+topLevelDeclaration = do
+  _ <- whiteSpaceWithNewlines
+  startPos <- getPosition
+  topLevel <- Lexer.nonIndented whiteSpaceWithNewlines (dataType <|> function)
+  endPos <- getPosition
+  modify (setTopLevelPosition topLevel (startPos, endPos))
+  return topLevel
 
 dataType :: Parser TopLevel
 dataType = DataType <$> (ADT <$> name <*> generics <*> (equals *> constructors))
@@ -242,8 +283,13 @@ pType = do
       [x] -> x
       xs -> foldl1 TypeApplication xs
 
+parseModuleWithLineInformation :: Text -> Either ParseError' (Module, LineInformation)
+parseModuleWithLineInformation = parse (runStateT pModule (LineInformation Map.empty Map.empty)) ""
+  where
+    pModule = Module <$> many topLevelDeclaration <* eof
+
 parseModule :: Text -> Either ParseError' Module
-parseModule = parse pModule ""
+parseModule = parse (evalStateT pModule (LineInformation Map.empty Map.empty)) ""
   where
     pModule = Module <$> many topLevelDeclaration <* eof
 
@@ -370,7 +416,8 @@ isComplex expr' =
 
 indent :: Int -> Text -> Text
 indent level string =
-  intercalate "\n" $ (\line -> Text.replicate level " " <> line) <$> Text.lines string
+  intercalate "\n" $
+  (Text.replicate level " " <>) <$> Text.lines string
 
 indent2 :: Text -> Text
 indent2 = indent 2

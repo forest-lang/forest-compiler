@@ -33,32 +33,32 @@ newtype Module =
 data TopLevel
   = Function Declaration
   | DataType ADT
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data ADT =
   ADT Ident
       [Ident]
       (NonEmpty Constructor)
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data Declaration =
   Declaration (Maybe Annotation)
               Ident
               [Argument]
               Expression
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data Annotation =
   Annotation Ident
              (NonEmpty AnnotationType)
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data AnnotationType
   = Concrete Ident
   | Parenthesized (NonEmpty AnnotationType)
   | TypeApplication AnnotationType
                     AnnotationType
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data Expression
   = Identifier Ident
@@ -75,26 +75,26 @@ data Expression
         Expression
   | BetweenParens Expression
   | String' Text
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data Argument
   = AIdentifier Ident
   | ADeconstruction Ident
                     [Argument]
   | ANumberLiteral Int
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data Constructor =
   Constructor Ident
               (Maybe ConstructorType)
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data ConstructorType
   = CTConcrete Ident
   | CTApplied ConstructorType
               ConstructorType
   | CTParenthesized ConstructorType
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 data OperatorExpr
   = Add
@@ -102,7 +102,7 @@ data OperatorExpr
   | Divide
   | Multiply
   | StringAdd
-  deriving (Show, Eq, G.Generic)
+  deriving (Show, Eq, G.Generic, Ord)
 
 newtype Ident =
   Ident NonEmptyString

@@ -213,7 +213,7 @@ messages r =
     Right () -> []
     Left errors -> NE.toList $ m <$> errors
   where
-    m (CompileError _ message) = message
+    m (CompileError _ _ message) = message
 
 typeCheckerSpecs :: SpecWith ()
 typeCheckerSpecs =
@@ -260,6 +260,7 @@ typeCheckerSpecs =
                     (Language.Apply
                        (Language.Identifier (Ident (NonEmptyString 'a' "dd")))
                        (Language.Identifier (Ident (NonEmptyString 'a' "")))))
+                 Nothing
                  "Function expected argument of type Int, but instead got argument of type a" :|
                [])
         describe "recursive types" $ do

@@ -4,6 +4,7 @@
 
 module TypeChecker
   ( checkModule
+  , checkModuleWithLineInformation
   , CompileError(..)
   , TypedModule(..)
   , TypedDeclaration(..)
@@ -43,6 +44,7 @@ showT = T.pack . show
 
 data CompileError =
   CompileError InvalidConstruct
+               (Maybe SourceRange)
                Text
   deriving (Eq, Show)
 
@@ -125,6 +127,14 @@ data TypedArgument
                      [TypedArgument]
   deriving (Show, Eq, G.Generic)
 
+expressionPosition :: LineInformation -> Expression -> Maybe SourceRange
+expressionPosition (LineInformation expressionPositions _) expr =
+  Map.lookup expr expressionPositions
+
+topLevelPosition :: LineInformation -> TopLevel -> Maybe SourceRange
+topLevelPosition (LineInformation _ topLevelPositions) topLevel =
+  Map.lookup topLevel topLevelPositions
+
 addDeclarations :: CompileState -> [TypedDeclaration] -> CompileState
 addDeclarations state declarations =
   state {typedDeclarations = declarations ++ typedDeclarations state}
@@ -151,8 +161,11 @@ defaultTypes :: Map Ident Type
 defaultTypes =
   Map.fromList [(ne "Int", Num), (ne "String", Str), (ne "Float", Float')]
 
-checkModule :: Module -> Either (NonEmpty CompileError) TypedModule
-checkModule (Module topLevels) =
+checkModuleWithLineInformation ::
+     Module
+  -> Maybe LineInformation
+  -> Either (NonEmpty CompileError) TypedModule
+checkModuleWithLineInformation (Module topLevels) possibleLineInformation =
   let initialState :: CompileState
       initialState =
         (CompileState
@@ -162,13 +175,17 @@ checkModule (Module topLevels) =
            , typeConstructors = Map.empty
            , types = defaultTypes
            })
+      lineInformation = fromMaybe (LineInformation Map.empty Map.empty) possibleLineInformation
       compileState :: CompileState
-      compileState = foldl checkTopLevel initialState topLevels
+      compileState = foldl (checkTopLevel lineInformation) initialState topLevels
       possibleErrors :: Maybe (NonEmpty CompileError)
       possibleErrors = nonEmpty $ errors compileState
    in case possibleErrors of
         Just errors -> Left errors
         Nothing -> Right (TypedModule (typedDeclarations compileState))
+
+checkModule :: Module -> Either (NonEmpty CompileError) TypedModule
+checkModule m = checkModuleWithLineInformation m Nothing
 
 eitherToArrays :: [Either a b] -> Either [a] [b]
 eitherToArrays eithers =
@@ -178,8 +195,8 @@ eitherToArrays eithers =
         _ -> Left lefts
 
 -- TODO - make this function a bit easier to read
-checkDataType :: CompileState -> ADT -> CompileState
-checkDataType state adt@(ADT name generics constructors) =
+checkDataType :: CompileState -> ADT -> Maybe SourceRange -> CompileState
+checkDataType state adt@(ADT name generics constructors) position =
   case (declarationsResult, constructorsResult) of
     (Right declarations, Right constructors) ->
       addTypeConstructors
@@ -205,7 +222,11 @@ checkDataType state adt@(ADT name generics constructors) =
           argList = maybe (Right []) constructorTypes types'
           arguments = (fmap charToArgument) <$> (zip ['a' ..] <$> argList)
           declarationFromType t typedArgument =
-            TypedDeclaration name typedArgument t (TypeChecker.ADTConstruction tag typedArgument)
+            TypedDeclaration
+              name
+              typedArgument
+              t
+              (TypeChecker.ADTConstruction tag typedArgument)
        in declarationFromType <$>
           (maybe (Right returnType) constructorType types') <*>
           arguments
@@ -215,7 +236,7 @@ checkDataType state adt@(ADT name generics constructors) =
       TypedConstructor name tag <$> (maybe (Right []) constructorTypes types)
     constructorType :: ConstructorType -> Either CompileError Type
     constructorType ct = foldr Lambda returnType <$> (constructorTypes ct)
-    errorMessage = CompileError $ DataTypeError adt
+    errorMessage = CompileError (DataTypeError adt) position
     constructorTypes :: ConstructorType -> Either CompileError [Type]
     constructorTypes ct =
       case ct of
@@ -231,15 +252,18 @@ checkDataType state adt@(ADT name generics constructors) =
         CTParenthesized ct -> constructorTypes ct
         CTApplied a b -> (<>) <$> constructorTypes a <*> constructorTypes b
 
-checkTopLevel :: CompileState -> TopLevel -> CompileState
-checkTopLevel state topLevel =
+checkTopLevel :: LineInformation -> CompileState -> TopLevel -> CompileState
+checkTopLevel lineInformation state topLevel =
   case topLevel of
-    DataType adt -> checkDataType state adt
+    DataType adt -> checkDataType state adt position
     Function declaration ->
-      let result = checkDeclaration state declaration
+      let result = checkDeclaration state declaration position exprPosition
        in case result of
             Right t -> addDeclarations state [t]
             Left e -> addError state e
+  where
+    position = topLevelPosition lineInformation topLevel
+    exprPosition = expressionPosition lineInformation
 
 newtype Constraints =
   Constraints (Map Ident Type)
@@ -292,10 +316,14 @@ typeConstraints a b =
         else Nothing
 
 checkDeclaration ::
-     CompileState -> Declaration -> Either CompileError TypedDeclaration
-checkDeclaration state declaration = do
+     CompileState
+  -> Declaration
+  -> Maybe SourceRange
+  -> (Expression -> Maybe SourceRange)
+  -> Either CompileError TypedDeclaration
+checkDeclaration state declaration position exprPosition = do
   let (Declaration _ name args expr) = declaration
-  annotationTypes <- inferDeclarationType state declaration
+  annotationTypes <- inferDeclarationType state declaration position
   -- TODO - is sequence right here?
   -- TODO - fix undefined
   argsWithTypes <-
@@ -306,7 +334,7 @@ checkDeclaration state declaration = do
   expectedReturnType <-
     (case (NE.drop (length args) annotationTypes) of
        (x:xs) -> Right $ collapseTypes (x :| xs)
-       _ -> Left $ CompileError (DeclarationError declaration) "Not enough args")
+       _ -> Left $ CompileError (DeclarationError declaration) position "Not enough args")
   let typedDeclaration =
         TypedDeclaration
           name
@@ -314,7 +342,7 @@ checkDeclaration state declaration = do
           (foldr1 Lambda annotationTypes)
           (TypeChecker.Number 0)
   let actualReturnType =
-        inferType (addDeclarations state (typedDeclaration : locals)) expr
+        inferType (addDeclarations state (typedDeclaration : locals)) expr exprPosition
   let typeChecks typedExpression =
         if typeOf typedExpression `typeEq` expectedReturnType -- TODO use typeConstraints here
           then Right $
@@ -326,6 +354,7 @@ checkDeclaration state declaration = do
           else Left $
                CompileError
                  (DeclarationError declaration)
+                 position
                  ("Expected " <> s name <> " to return type " <>
                   printType expectedReturnType <>
                   ", but instead got type " <>
@@ -370,10 +399,13 @@ inferApplicationType ::
      CompileState
   -> Expression
   -> Expression
+  -> (Expression -> Maybe SourceRange)
   -> (Text -> CompileError)
   -> Either CompileError TypedExpression
-inferApplicationType state a b compileError =
-  let typedExprs = (,) <$> inferType state a <*> inferType state b
+inferApplicationType state a b exprPosition compileError =
+  let typedExprs =
+        (,) <$> inferType state a exprPosition <*>
+        inferType state b exprPosition
       inferApplication (a, b) =
         case (typeOf a, typeOf b) of
           (Lambda x r, b') ->
@@ -415,9 +447,10 @@ inferInfixType ::
   -> OperatorExpr
   -> Expression
   -> Expression
+  -> (Expression -> Maybe SourceRange)
   -> (Text -> CompileError)
   -> Either CompileError TypedExpression
-inferInfixType state op a b compileError =
+inferInfixType state op a b exprPosition compileError =
   let validInfix a b =
         case (op, b, typeEq a b) of
           (StringAdd, Str, True) -> Just Str
@@ -425,7 +458,9 @@ inferInfixType state op a b compileError =
           (_, Num, True) -> Just Num
           (_, Float', True) -> Just Float'
           (_, _, _) -> Nothing
-      types = (,) <$> inferType state a <*> inferType state b
+      types =
+        (,) <$> inferType state a exprPosition <*>
+        inferType state b exprPosition
       checkInfix (a, b) =
         case validInfix (typeOf a) (typeOf b) of
           Just returnType -> Right (TypeChecker.Infix returnType op a b)
@@ -442,17 +477,18 @@ inferCaseType ::
      CompileState
   -> Expression
   -> (NonEmpty (Argument, Expression))
+  -> (Expression -> Maybe SourceRange)
   -> (Text -> CompileError)
   -> Either CompileError TypedExpression
-inferCaseType state value branches compileError = do
-  typedValue <- inferType state value
+inferCaseType state value branches exprPosition compileError = do
+  typedValue <- inferType state value exprPosition
   typedBranches <- sequence $ inferBranch typedValue <$> branches
   allBranchesHaveSameType typedValue typedBranches
   where
     inferBranch v (a, b) = do
       a' <- inferArgumentType state compileError (typeOf v) a
       let argDeclarations = declarationsFromTypedArgument a'
-      b' <- inferType (addDeclarations state argDeclarations) b
+      b' <- inferType (addDeclarations state argDeclarations) b exprPosition
       return (a', b')
     allBranchesHaveSameType ::
          TypedExpression
@@ -485,9 +521,10 @@ inferLetType ::
      CompileState
   -> NonEmpty Declaration
   -> Expression
+  -> (Expression -> Maybe SourceRange)
   -> (Text -> CompileError)
   -> Either CompileError TypedExpression
-inferLetType state declarations' value _ =
+inferLetType state declarations' value exprPosition _ =
   let branchTypes ::
            [TypedDeclaration]
         -> [Declaration]
@@ -496,28 +533,35 @@ inferLetType state declarations' value _ =
         case untyped of
           [] -> Right []
           (x:xs) ->
-            checkDeclaration (addDeclarations state typed) x >>= \t ->
+            checkDeclaration (addDeclarations state typed) x Nothing exprPosition >>= \t ->
               (:) t <$> branchTypes (typed ++ [t]) xs
    in branchTypes [] (NE.toList declarations') >>= \b ->
         TypeChecker.Let (NE.fromList b) <$>
-        inferType (addDeclarations state b) value
+        inferType (addDeclarations state b) value exprPosition
 
-inferType :: CompileState -> Expression -> Either CompileError TypedExpression
-inferType state expr =
+inferType ::
+     CompileState
+  -> Expression
+  -> (Expression -> Maybe SourceRange)
+  -> Either CompileError TypedExpression
+inferType state expr exprPosition =
   case expr of
     Language.Number n -> Right $ TypeChecker.Number n
     Language.Float f -> Right $ TypeChecker.Float f
     Language.String' s -> Right $ TypeChecker.String' s
-    Language.BetweenParens expr -> inferType state expr
-    Language.Identifier name -> inferIdentifierType state name compileError
-    Language.Apply a b -> inferApplicationType state a b compileError
-    Language.Infix op a b -> inferInfixType state op a b compileError
+    Language.BetweenParens expr -> inferType state expr exprPosition
+    Language.Identifier name ->
+      inferIdentifierType state name compileError
+    Language.Apply a b ->
+      inferApplicationType state a b exprPosition compileError
+    Language.Infix op a b ->
+      inferInfixType state op a b exprPosition compileError
     Language.Case value branches ->
-      inferCaseType state value branches compileError
+      inferCaseType state value branches exprPosition compileError
     Language.Let declarations' value ->
-      inferLetType state declarations' value compileError
+      inferLetType state declarations' value exprPosition compileError
   where
-    compileError = CompileError $ ExpressionError expr
+    compileError = CompileError (ExpressionError expr) (exprPosition expr)
 
 inferArgumentType ::
      CompileState
@@ -576,14 +620,18 @@ inferArgumentType state err valueType arg =
               " in scope."
 
 inferDeclarationType ::
-     CompileState -> Declaration -> Either CompileError (NE.NonEmpty Type)
-inferDeclarationType state declaration =
+     CompileState
+  -> Declaration
+  -> Maybe SourceRange
+  -> Either CompileError (NE.NonEmpty Type)
+inferDeclarationType state declaration lineInformation =
   case annotation of
     Just (Annotation _ types) -> sequence $ annotationTypeToType <$> types
     Nothing -> Left $ compileError "For now, annotations are required."
   where
     (Declaration annotation _ _ _) = declaration
-    compileError = CompileError $ DeclarationError declaration
+    compileError :: Text -> CompileError
+    compileError = CompileError (DeclarationError declaration) lineInformation
     annotationTypeToType t =
       case t of
         Concrete i -> findTypeFromIdent (types state) compileError i

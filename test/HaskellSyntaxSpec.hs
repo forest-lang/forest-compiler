@@ -7,10 +7,12 @@ module HaskellSyntaxSpec
   ) where
 
 import Control.Monad
+import Control.Monad.Trans.State.Lazy
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty
 import Data.Semigroup
 import Data.Text (Text)
+import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.Exit
@@ -25,6 +27,9 @@ import Arbitrary
 import Compiler
 import HaskellSyntax
 import Language
+
+parseCode :: Parser a -> Text -> Either ParseError' a
+parseCode parser = parse (evalStateT parser (LineInformation Map.empty Map.empty)) ""
 
 propParseAndPrint :: Module -> Bool
 propParseAndPrint m =
@@ -120,7 +125,7 @@ haskellSyntaxSpecs = parallel $ do
       parseResult `shouldBe` Right expected
     it "parses type applications in annotations" $ do
       let code = "foo :: Int -> Maybe Int"
-      let parseResult = parse annotation "" code
+      let parseResult = parseCode annotation code
       let expected =
             Annotation (ne "foo") $
             Concrete (ne "Int") :|
@@ -128,7 +133,7 @@ haskellSyntaxSpecs = parallel $ do
       parseResult `shouldBe` Right expected
     it "parses complex type applications in annotations" $ do
       let code = "foo :: Int -> Maybe (Int -> String)"
-      let parseResult = parse annotation "" code
+      let parseResult = parseCode annotation code
       let expected =
             Annotation (ne "foo") $
             Concrete (ne "Int") :|
@@ -139,7 +144,7 @@ haskellSyntaxSpecs = parallel $ do
       parseResult `shouldBe` Right expected
     it "parses complex type applications in adt constructors" $ do
       let code = "data Foo a\n= Foo (Maybe a)"
-      let parseResult = parse dataType "" code
+      let parseResult = parseCode dataType code
       let expected =
             DataType $
             ADT
@@ -190,7 +195,7 @@ haskellSyntaxSpecs = parallel $ do
                     (Concrete (Ident (NonEmptyString 'E' "ither")))
                     (Concrete (Ident (NonEmptyString 'S' "tring"))))
                  (Concrete (Ident (NonEmptyString 'I' "nt"))))
-         in parse pType "" "Either String Int" `shouldBe` Right expected
+         in parse (evalStateT pType (LineInformation Map.empty Map.empty)) "" "Either String Int" `shouldBe` Right expected
 
 ne :: Text -> Ident
 ne s = Ident $ NonEmptyString (T.head s) (T.tail s)

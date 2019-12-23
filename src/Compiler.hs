@@ -22,10 +22,10 @@ data Result a
 
 typeCheck :: Text -> Result TypedModule
 typeCheck code =
-  case parseModule code of
+  case parseModuleWithLineInformation code of
     Left parseError -> ParseErr parseError
-    Right forestModule ->
-      case checkModule forestModule of
+    Right (forestModule, lineInformation) ->
+      case checkModuleWithLineInformation forestModule (Just lineInformation) of
         Left compileError -> CompileErr compileError
         Right typedModule -> Success typedModule
 
