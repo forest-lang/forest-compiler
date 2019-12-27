@@ -5,7 +5,7 @@ data Player
   = Player Vector2 Vector2
 
 getX :: Player -> Float
-getX (Player (Vector2 x y) velocity) =
+getX (Player (Vector2 x y) (Vector2 vx vy)) =
   x
 
 main :: Float

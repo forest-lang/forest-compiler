@@ -30,6 +30,7 @@ library
                      , containers
                      , transformers
                      , parser-combinators
+                     , mtl
   default-language:    Haskell2010
 
 executable forest

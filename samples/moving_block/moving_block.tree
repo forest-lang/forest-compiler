@@ -1,5 +1,8 @@
+data Vector2
+  = Vector2 Float Float
+
 data State
-  = State Int Int
+  = State Vector2 Vector2
 
 data Input
   = Up
@@ -8,29 +11,36 @@ data Input
   | Right
   | NoInput
 
-x :: State -> Int
-x (State sx sy) = sx
+getX :: Vector2 -> Float
+getX (Vector2 x y) = x
 
-y :: State -> Int
-y (State sx sy) = sy
+getY :: Vector2 -> Float
+getY (Vector2 x y) = y
 
 update :: State -> Input -> State
-update (State x y) input =
+update (State (Vector2 x y) (Vector2 vx vy)) input =
   let
-    speed :: Int
-    speed = 10
+    accel :: Float
+    accel = 0.1
+
+    newVelocity :: Int -> Vector2
+    newVelocity i =
+      case input of
+        Up ->
+          Vector2 vx (vy - accel)
+        Down ->
+          Vector2 vx (vy + accel)
+        Left ->
+          Vector2 (vx - accel) vy
+        Right ->
+          Vector2 (vx + accel) vy
+        NoInput ->
+          Vector2 vx vy
+
+    newPosition :: Int -> Vector2
+    newPosition i = Vector2 (x + getX (newVelocity 0)) (y + getY (newVelocity 0))
   in
-    case input of
-      Up ->
-        State x (y - speed)
-      Down ->
-        State x (y + speed)
-      Left ->
-        State (x - speed) y
-      Right ->
-        State (x + speed) y
-      NoInput ->
-        State x y
+    State (newPosition 0) (newVelocity 0)
 
 init :: State
-init = State 50 50
+init = State (Vector2 50.0 50.0) (Vector2 0.0 0.0)

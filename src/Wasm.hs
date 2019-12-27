@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE QuasiQuotes #-}
 
 module Wasm
@@ -9,6 +10,7 @@ module Wasm
   , WasmType(..)
   , Declaration(..)
   , TopLevel(..)
+  , UniqueLocals(..)
   , printWasm
   , forestModuleToWasm
   , assignments
@@ -18,10 +20,13 @@ module Wasm
 import qualified Language as F
 
 import Control.Arrow ((***))
+import Control.Monad.Trans.State.Lazy
 import Data.Char
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty((:|)))
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
 import Data.Semigroup ((<>))
 import Data.Set (Set)
@@ -77,8 +82,11 @@ data Expression
              (NE.NonEmpty Expression)
   deriving (Show, Eq)
 
-data Locals =
+newtype Locals =
   Locals (Set F.Ident)
+
+newtype UniqueLocals =
+  UniqueLocals (Map F.Ident Int)
 
 noLocals :: Locals
 noLocals = Locals (Set.empty)
@@ -179,8 +187,11 @@ allocateBytes (Module topLevel bytes) extraBytes =
 
 compileDeclaration :: Module -> TypedDeclaration -> Module
 compileDeclaration m (TypedDeclaration name args fType fexpr) =
-  let parameters = concatMap (fst <$> assignments) args
-      deconstruction = concatMap (snd <$> assignments) args
+  let parameters = argTypes args
+      deconstruction =
+        evalState
+          (concat <$> traverse assignments args)
+          (UniqueLocals Map.empty)
       locals = Locals (Set.fromList (fst <$> parameters))
       (m', expr') = compileExpression m locals fexpr
       forestTypeToWasmType' fType =
@@ -193,7 +204,7 @@ compileDeclaration m (TypedDeclaration name args fType fexpr) =
       func =
         Func $
         Declaration
-          name
+          (symbolToIdent name)
           parameters
           wasmType
           (Sequence wasmType $ NE.fromList (deconstruction <> [expr']))
@@ -202,14 +213,14 @@ compileDeclaration m (TypedDeclaration name args fType fexpr) =
 compileInlineDeclaration ::
      Module -> Locals -> TypedDeclaration -> (Maybe Expression, Module)
 compileInlineDeclaration m (Locals l) (TypedDeclaration name args forestType fexpr) =
-  let parameters = concatMap (fst <$> assignments) (args)
+  let parameters = argTypes args
       locals = Locals (Set.union l (Set.fromList (fst <$> parameters)))
       (m', expr') = compileExpression m locals fexpr
       thing =
         Func $
-        Declaration name parameters (forestTypeToWasmType forestType) expr'
+        Declaration (symbolToIdent name) parameters (forestTypeToWasmType forestType) expr'
    in case args of
-        [] -> (Just $ SetLocal name (forestTypeToWasmType forestType) expr', m')
+        [] -> (Just $ SetLocal (symbolToIdent name) (forestTypeToWasmType forestType) expr', m')
         _ -> (Nothing, addTopLevel m' [thing])
 
 forestTypeToWasmType :: T.Type -> WasmType
@@ -267,10 +278,10 @@ compileApply m locals left right =
       let (m', exprs) = compileExpressions m [right, r']
        in ( m'
           , Sequence (forestTypeToWasmType t) $
-            NE.fromList (exprs <> [NamedCall name []]))
+            NE.fromList (exprs <> [NamedCall (symbolToIdent name) []]))
     T.Identifier _ name ->
       let (m', r) = compileExpression m locals right
-       in (m', NamedCall name [r])
+       in (m', NamedCall (symbolToIdent name) [r])
     _ -> error $ "do not know what to do with " <> show left
 
 compileLet ::
@@ -291,7 +302,7 @@ compileLet m locals@(Locals l) declarations fexpr =
         foldl compileDeclaration' (m, []) declarations
       names =
         NE.toList $ (\(TypedDeclaration name _ _ _) -> name) <$> declarations
-      locals' = Locals $ Set.union l (Set.fromList names)
+      locals' = Locals $ Set.union l (Set.fromList (symbolToIdent <$> names))
       (m'', expr') = compileExpression m' locals' fexpr
    in ( m''
       , Sequence (forestTypeToWasmType (T.typeOf fexpr)) $
@@ -348,7 +359,7 @@ compileADTConstruction tag args =
             (NamedCall (ident "malloc") [Const $ (1 + length args) * 4])
         , Call (ident "i32.store") [GetLocal (ident "address"), Const tag]
         ] <>
-        (store <$> zip [1 ..] (concatMap (fst <$> assignments) args)) <>
+        (store <$> zip [1 ..] (argTypes args)) <>
         [GetLocal (ident "address")]))
   where
     store :: (Int, (F.Ident, WasmType)) -> Expression
@@ -371,7 +382,7 @@ compileString m str =
 compileExpression :: Module -> Locals -> TypedExpression -> (Module, Expression)
 compileExpression m locals@(Locals l) fexpr =
   case fexpr of
-    T.Identifier t i -> (m, compileIdentifer t i l)
+    T.Identifier t i -> (m, compileIdentifer t (symbolToIdent i) l)
     T.Number n -> (m, Const n)
     T.Float f -> (m, FloatConst f)
     T.BetweenParens fexpr -> compileExpression m locals fexpr
@@ -382,45 +393,66 @@ compileExpression m locals@(Locals l) fexpr =
     T.String' str -> compileString m str
     T.ADTConstruction tag args -> (m, compileADTConstruction tag args)
 
-assignments :: (T.TypedArgument) -> ([(F.Ident, WasmType)], [Expression])
-assignments (T.TAIdentifier t i) = ([(i, forestTypeToWasmType t)], [])
-assignments (T.TADeconstruction i _ args) =
-  ( [(i, I32)]
-  , concatMap (uncurry (compileDeconstructionAssignment i)) (zip args [1 ..]))
-assignments (T.TANumberLiteral _) = ([], [])
+assignments :: T.TypedArgument -> State UniqueLocals [Expression]
+assignments (T.TAIdentifier _ _) = pure []
+assignments (T.TADeconstruction (T.BindingSymbol i) _ _ args) =
+  concat <$>
+  traverse (uncurry (compileDeconstructionAssignment (symbolToIdent i))) (zip args [1 ..])
+assignments (T.TANumberLiteral _) = pure []
+
+argTypes :: Foldable t => t T.TypedArgument -> [(F.Ident, WasmType)]
+argTypes = concatMap argType
 
 argType :: T.TypedArgument -> [(F.Ident, WasmType)]
-argType (T.TAIdentifier t i) = [(i, forestTypeToWasmType t)]
+argType (T.TAIdentifier t i) = [(symbolToIdent i, forestTypeToWasmType t)]
 argType (T.TANumberLiteral _) = []
-argType (T.TADeconstruction i _ args) = [(i, I32)] <> concatMap argType args
+argType (T.TADeconstruction (T.BindingSymbol i) _ _ _) = [(symbolToIdent i, I32)]
 
+getUniqueLocal :: F.Ident -> State UniqueLocals F.Ident
+getUniqueLocal i = do
+  count <- gets countForIdent
+  modify updateCount
+  return $ ident ((F.s i) <> "_" <> showT count)
+  where
+    updateCount (UniqueLocals map) = UniqueLocals (Map.insertWith (+) i 1 map)
+    countForIdent (UniqueLocals map) = fromMaybe 0 (Map.lookup i map)
 
 compileDeconstructionAssignment ::
-     F.Ident -> T.TypedArgument -> Int -> [Expression]
+     F.Ident -> T.TypedArgument -> Int -> State UniqueLocals [Expression]
 compileDeconstructionAssignment i a n =
   case a of
-    T.TAIdentifier t i' ->
-      pure
-        $(SetLocal
-            i'
-            (forestTypeToWasmType t)
-            (Call
-               (ident (printWasmType (forestTypeToWasmType t) <> ".load"))
-               [Call (ident "i32.add") [GetLocal i, Const $ n * 4]]))
-    T.TANumberLiteral _ -> mempty
-    T.TADeconstruction i' _ args ->
-      [SetLocal i' I32 (Call (ident "i32.load") [Call (ident "i32.add") [GetLocal i, Const $ n * 4]])] <>
-       concatMap
-         (uncurry (compileDeconstructionAssignment i'))
-         (zip args [1 ..])
+    T.TAIdentifier t symbol -> do
+      return $
+        [ (SetLocal
+             (symbolToIdent symbol)
+             (forestTypeToWasmType t)
+             (Call
+                (ident (printWasmType (forestTypeToWasmType t) <> ".load"))
+                [Call (ident "i32.add") [GetLocal i, Const $ n * 4]]))
+        ]
+    T.TANumberLiteral _ -> pure []
+    T.TADeconstruction (T.BindingSymbol symbol) _ _ args -> do
+      let assignment =
+            [ SetLocal
+               (symbolToIdent symbol)
+                I32
+                (Call
+                   (ident "i32.load")
+                   [Call (ident "i32.add") [GetLocal i, Const $ n * 4]])
+            ]
+      ((<>) assignment) <$>
+        (concat <$>
+         traverse
+           (uncurry (compileDeconstructionAssignment (symbolToIdent symbol)))
+           (zip args [1 ..]))
 
 compileCaseExpression ::
      Module -> Locals -> T.TypedExpression -> (Module, Expression)
 compileCaseExpression m locals fexpr =
   case fexpr of
-    Identifier (T.Applied _ _) i -> (m, Call (ident "i32.load") [GetLocal i])
+    Identifier (T.Applied _ _) i -> (m, Call (ident "i32.load") [GetLocal (symbolToIdent i)])
     Identifier (T.TL (T.TypeLambda _)) i ->
-      (m, Call (ident "i32.load") [GetLocal i])
+      (m, Call (ident "i32.load") [GetLocal (symbolToIdent i)])
     _ -> compileExpression m locals fexpr
 
 compileArgument ::
@@ -430,17 +462,17 @@ compileArgument ::
   -> (Module, Expression, Locals)
 compileArgument m caseFexpr arg =
   case arg of
-    T.TAIdentifier _ i -> (m, GetLocal i, addLocal i noLocals)
+    T.TAIdentifier _ i -> (m, GetLocal (symbolToIdent i), addLocal (symbolToIdent i) noLocals)
     T.TANumberLiteral n -> (m, Const n, noLocals)
-    T.TADeconstruction _ tag args ->
+    T.TADeconstruction _ _ tag args ->
       let assignments = mapMaybe makeAssignment (zip args [1 ..])
           makeAssignment :: (T.TypedArgument, Int) -> Maybe Expression
           makeAssignment (arg, index) =
             case arg of
-              TAIdentifier fType ident' ->
+              TAIdentifier fType symbol ->
                 Just
                   (SetLocal
-                     ident'
+                     (symbolToIdent symbol)
                      (forestTypeToWasmType fType)
                      (Call
                         (ident
@@ -448,14 +480,14 @@ compileArgument m caseFexpr arg =
                             ".load"))
                         [Call (ident "i32.add") [caseLocal, Const (index * 4)]]))
               _ -> Nothing
-          localName (TAIdentifier _ ident') = Just ident'
+          localName (TAIdentifier _ symbol) = Just (symbolToIdent symbol)
           localName _ = Nothing
           locals = addLocals (mapMaybe localName args) noLocals
        in (m, Sequence I32 (NE.fromList (assignments <> [Const tag])), locals)
   where
     caseLocal =
       case caseFexpr of
-        T.Identifier _ name -> GetLocal name
+        T.Identifier _ name -> GetLocal (symbolToIdent name)
         _ -> Const 0
 
 eq32 :: F.Ident
@@ -589,3 +621,7 @@ printLocal (name, wasmType) =
 
 ident :: Text -> F.Ident
 ident t = F.Ident $ F.NonEmptyString (Text.head t) (Text.tail t)
+
+symbolToIdent :: T.Symbol -> F.Ident
+symbolToIdent (Symbol n i) =
+  ident (F.s i <> "_" <> showT n)

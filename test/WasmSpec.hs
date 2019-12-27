@@ -6,8 +6,11 @@ module WasmSpec
   ( wasmSpecs
   ) where
 
+import Control.Monad.Trans.State.Lazy
 import Data.Either
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Text (Text, unpack)
 import qualified Data.Text as T
 import System.Exit
@@ -22,6 +25,7 @@ import HaskellSyntax
 import Language
 import TypeChecker
 import Wasm
+import qualified Wasm as W
 
 import Arbitrary
 
@@ -50,94 +54,163 @@ wasmSpecs =
       withMaxSuccess
         1000
         (property (forAll genModule propCodeThatTypeChecksShouldCompile))
-    it "correctly generates functions that return floats" $ do
+    it "correctly generates functions that return floats" $
       let typedModule =
             TypedModule
               [ TypedDeclaration
-                  (Ident (NonEmptyString 'g' "etX"))
+                  (Symbol 0 $ Ident (NonEmptyString 'g' "etX"))
                   [ TADeconstruction
-                      (Ident (NonEmptyString 'P' "layer"))
+                      (BindingSymbol . Symbol 99 $ Ident (NonEmptyString 'P' "layer"))
+                      (ConstructorSymbol . Symbol 0 $ Ident (NonEmptyString 'P' "layer"))
                       0
-                      [TAIdentifier Float' (Ident (NonEmptyString 'x' ""))]
+                      [ TAIdentifier
+                          Float'
+                          (Symbol 1 $ Ident (NonEmptyString 'x' ""))
+                      ]
                   ]
                   (Lambda
                      (TL (TypeLambda (Ident (NonEmptyString 'P' "layer"))))
                      Float')
-                  (TypeChecker.Identifier Float' (Ident (NonEmptyString 'x' "")))
+                  (TypeChecker.Identifier
+                     Float'
+                     (Symbol 1 $ Ident (NonEmptyString 'x' "")))
               ]
        in forestModuleToWasm typedModule `shouldBe`
           Wasm.Module
             [ Func
                 (Wasm.Declaration
-                   (Ident (NonEmptyString 'g' "etX"))
-                   [(Ident (NonEmptyString 'P' "layer"), I32)]
+                   (Ident (NonEmptyString 'g' "etX_0"))
+                   [(Ident (NonEmptyString 'P' "layer_99"), I32)]
                    F32
                    (Sequence
                       F32
                       (SetLocal
-                         (Ident (NonEmptyString 'x' ""))
+                         (Ident (NonEmptyString 'x' "_1"))
                          F32
                          (Call
                             (Ident (NonEmptyString 'f' "32.load"))
                             [ Call
                                 (Ident (NonEmptyString 'i' "32.add"))
-                                [ GetLocal (Ident (NonEmptyString 'P' "layer"))
+                                [ GetLocal
+                                    (Ident (NonEmptyString 'P' "layer_99"))
                                 , Const 4
                                 ]
                             ]) :|
-                       [GetLocal (Ident (NonEmptyString 'x' ""))])))
+                       [GetLocal (Ident (NonEmptyString 'x' "_1"))])))
             ]
             0
     describe "assignment" $ do
       it "generates appropriate instructions for destructuring args" $
         let input =
-              TADeconstruction (ident "Player") 0 [TAIdentifier Num (ident "x")]
-            expectedLocals = [(ident "Player", I32)]
+              TADeconstruction
+                (BindingSymbol . Symbol 3 $ ident "Player")
+                (ConstructorSymbol . Symbol 0 $ ident "Player")
+                0
+                [TAIdentifier Num (Symbol 1 $ ident "x")]
             expectedInstructions =
               [ SetLocal
-                  (ident "x")
+                  (ident "x_1")
                   I32
                   (Call
                      (ident "i32.load")
                      [ Call
                          (ident "i32.add")
-                         [GetLocal (ident "Player"), Const 4]
+                         [GetLocal (ident "Player_3"), Const 4]
                      ])
               ]
-            (locals, instructions) = assignments input
-         in do locals `shouldBe` expectedLocals
-               instructions `shouldBe` expectedInstructions
+            instructions =
+              evalState (assignments input) (UniqueLocals Map.empty)
+         in instructions `shouldBe` expectedInstructions
       it "generates appropriate instructions for destructuring nested args" $
         let input =
               TADeconstruction
-                (ident "Player")
+                (BindingSymbol . Symbol 99 $ ident "Player")
+                (ConstructorSymbol . Symbol 0 $ ident "Player")
                 0
                 [ TADeconstruction
-                    (ident "Age")
+                    (BindingSymbol . Symbol 99 $ ident "Age")
+                    (ConstructorSymbol . Symbol 1 $ ident "Age")
                     0
-                    [TAIdentifier Num (ident "age")]
+                    [TAIdentifier Num (Symbol 2 $ ident "age")]
                 ]
-            expectedLocals = [(ident "Player", I32)]
             expectedInstructions =
               [ SetLocal
-                  (ident "Age")
+                  (ident "Age_99")
                   I32
                   (Call
                      (ident "i32.load")
                      [ Call
                          (ident "i32.add")
-                         [GetLocal (ident "Player"), Const 4] -- TODO how does this even work. is it just looking up the wr
+                         [GetLocal (ident "Player_99"), Const 4]
                      ])
               , SetLocal
-                  (ident "age")
+                  (ident "age_2")
                   I32
                   (Call
                      (ident "i32.load")
                      [ Call
                          (ident "i32.add")
-                         [GetLocal (ident "Age"), Const 4]
+                         [GetLocal (ident "Age_99"), Const 4]
                      ])
               ]
-            (locals, instructions) = assignments input
-         in do locals `shouldBe` expectedLocals
-               instructions `shouldBe` expectedInstructions
+            instructions =
+              evalState (assignments input) (UniqueLocals Map.empty)
+         in instructions `shouldBe` expectedInstructions
+      it "generates unique names for locals" $
+        let input =
+              TADeconstruction
+                (BindingSymbol . Symbol 99 $ ident "Player")
+                (ConstructorSymbol . Symbol 0 $ ident "Player")
+                0
+                [ TADeconstruction
+                    (BindingSymbol . Symbol 98 $ ident "Test")
+                    (ConstructorSymbol . Symbol 1 $ ident "Test")
+                    0
+                    [TAIdentifier Num (Symbol 2 $ ident "a")]
+                , TADeconstruction
+                    (BindingSymbol . Symbol 97 $ ident "Test")
+                    (ConstructorSymbol . Symbol 1 $ ident "Test")
+                    0
+                    [TAIdentifier Num (Symbol 4 $ident "a")]
+                ]
+            expectedInstructions =
+              [ SetLocal
+                  (ident "Test_98")
+                  I32
+                  (Call
+                     (ident "i32.load")
+                     [ Call
+                         (ident "i32.add")
+                         [GetLocal (ident "Player_99"), Const 4]
+                     ])
+              , SetLocal
+                  (ident "a_2")
+                  I32
+                  (Call
+                     (ident "i32.load")
+                     [ Call
+                         (ident "i32.add")
+                         [GetLocal (ident "Test_98"), Const 4]
+                     ])
+              , SetLocal
+                  (ident "Test_97")
+                  I32
+                  (Call
+                     (ident "i32.load")
+                     [ Call
+                         (ident "i32.add")
+                         [GetLocal (ident "Player_99"), Const 8]
+                     ])
+              , SetLocal
+                  (ident "a_4")
+                  I32
+                  (Call
+                     (ident "i32.load")
+                     [ Call
+                         (ident "i32.add")
+                         [GetLocal (ident "Test_97"), Const 4]
+                     ])
+              ]
+            instructions =
+              evalState (assignments input) (UniqueLocals Map.empty)
+         in instructions `shouldBe` expectedInstructions
