@@ -20,6 +20,8 @@ module Wasm
 import qualified Language as F
 
 import Control.Arrow ((***))
+import Control.Monad
+import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Lazy
 import Data.Char
 import Data.List (intercalate)
@@ -71,6 +73,9 @@ data Expression
   | SetLocal F.Ident
              WasmType
              Expression
+  | TeeLocal F.Ident
+             WasmType
+             Expression
   | Call F.Ident
          [Expression]
   | NamedCall F.Ident
@@ -78,8 +83,9 @@ data Expression
   | If Expression
        Expression
        (Maybe Expression)
-  | Sequence WasmType
+  | Block WasmType
              (NE.NonEmpty Expression)
+  | Sequence (NE.NonEmpty Expression)
   deriving (Show, Eq)
 
 newtype Locals =
@@ -87,6 +93,9 @@ newtype Locals =
 
 newtype UniqueLocals =
   UniqueLocals (Map F.Ident Int)
+
+type CompileState = State Module
+type DeclarationCompileState = StateT UniqueLocals CompileState
 
 noLocals :: Locals
 noLocals = Locals (Set.empty)
@@ -173,55 +182,72 @@ indent2 = indent 2
 
 forestModuleToWasm :: TypedModule -> Module
 forestModuleToWasm (TypedModule topLevel) =
-  foldl compileDeclaration initModule topLevel
+  execState (sequence $ compileDeclaration <$> topLevel) initModule
   where
     initModule = Module [] 0
 
-addTopLevel :: Module -> [TopLevel] -> Module
-addTopLevel (Module topLevel bytes) newTopLevel =
-  Module (topLevel <> newTopLevel) bytes
+getAddress :: CompileState BytesAllocated
+getAddress = gets bytesAllocated
+  where
+    bytesAllocated (Module _ bytes) = bytes
 
-allocateBytes :: Module -> Int -> Module
-allocateBytes (Module topLevel bytes) extraBytes =
-  Module topLevel (bytes + extraBytes)
+addTopLevel :: [TopLevel] -> CompileState ()
+addTopLevel newTopLevel = modify transform
+  where
+    transform (Module topLevel bytes) = Module (topLevel <> newTopLevel) bytes
 
-compileDeclaration :: Module -> TypedDeclaration -> Module
-compileDeclaration m (TypedDeclaration name args fType fexpr) =
-  let parameters = argTypes args
-      deconstruction =
-        evalState
-          (concat <$> traverse assignments args)
-          (UniqueLocals Map.empty)
-      locals = Locals (Set.fromList (fst <$> parameters))
-      (m', expr') = compileExpression m locals fexpr
-      forestTypeToWasmType' fType =
-        case fType of
-          Lambda _ r -> forestTypeToWasmType' r
-          Num -> I32
-          Float' -> F32
-          _ -> I32
-      wasmType = forestTypeToWasmType' fType
-      func =
+allocateBytes :: Int -> CompileState ()
+allocateBytes i = modify transform
+  where
+    transform (Module topLevel bytes) = Module topLevel (bytes + i)
+
+compileDeclaration :: TypedDeclaration -> CompileState ()
+compileDeclaration (TypedDeclaration name args fType fexpr) = do
+  expr' <- evalStateT (compileExpression locals fexpr) (UniqueLocals Map.empty)
+  let func =
         Func $
         Declaration
           (symbolToIdent name)
           parameters
           wasmType
-          (Sequence wasmType $ NE.fromList (deconstruction <> [expr']))
-   in addTopLevel m' [func]
+          (Block wasmType $ NE.fromList (deconstruction <> [expr']))
+  addTopLevel [func]
+  where
+    parameters = argTypes args
+    deconstruction =
+      evalState (concat <$> traverse assignments args) (UniqueLocals Map.empty)
+    locals = Locals (Set.fromList (fst <$> parameters))
+    forestTypeToWasmType' fType =
+      case fType of
+        Lambda _ r -> forestTypeToWasmType' r
+        Num -> I32
+        Float' -> F32
+        _ -> I32
+    wasmType = forestTypeToWasmType' fType
 
 compileInlineDeclaration ::
-     Module -> Locals -> TypedDeclaration -> (Maybe Expression, Module)
-compileInlineDeclaration m (Locals l) (TypedDeclaration name args forestType fexpr) =
-  let parameters = argTypes args
-      locals = Locals (Set.union l (Set.fromList (fst <$> parameters)))
-      (m', expr') = compileExpression m locals fexpr
-      thing =
-        Func $
-        Declaration (symbolToIdent name) parameters (forestTypeToWasmType forestType) expr'
-   in case args of
-        [] -> (Just $ SetLocal (symbolToIdent name) (forestTypeToWasmType forestType) expr', m')
-        _ -> (Nothing, addTopLevel m' [thing])
+     Locals -> TypedDeclaration -> DeclarationCompileState (Maybe Expression)
+compileInlineDeclaration (Locals l) (TypedDeclaration name args forestType fexpr) = do
+  expr' <- compileExpression locals fexpr
+  let decl = inlineDeclaration expr'
+  case args of
+    [] ->
+      return $
+      (Just $
+       SetLocal (symbolToIdent name) (forestTypeToWasmType forestType) expr')
+    _ -> do
+      lift $ addTopLevel [decl]
+      return $ Nothing
+  where
+    parameters = argTypes args
+    locals = Locals (Set.union l (Set.fromList (fst <$> parameters)))
+    inlineDeclaration expr =
+      Func $
+      Declaration
+        (symbolToIdent name)
+        parameters
+        (forestTypeToWasmType forestType)
+        expr
 
 forestTypeToWasmType :: T.Type -> WasmType
 forestTypeToWasmType fType =
@@ -230,13 +256,12 @@ forestTypeToWasmType fType =
     Float' -> F32
     _ -> I32
 
-compileExpressions ::
-     Module -> NonEmpty TypedExpression -> (Module, [Expression])
-compileExpressions m = foldl compile (m, [])
+compileExpressions :: NonEmpty TypedExpression -> DeclarationCompileState [Expression]
+compileExpressions exprs = foldM compile [] exprs
   where
-    compile (m, xs) te =
-      let (m', e) = compileExpression m (Locals Set.empty) te
-       in (m', e : xs)
+    compile xs te = do
+      expr <- compileExpression (Locals Set.empty) te
+      return $ expr : xs
 
 compileIdentifer :: Type -> F.Ident -> Set F.Ident -> Expression
 compileIdentifer t i l =
@@ -252,72 +277,68 @@ compileIdentifer t i l =
     _ -> GetLocal i
 
 compileInfix ::
-     Module
-  -> Locals
+     Locals
   -> F.OperatorExpr
   -> TypedExpression
   -> TypedExpression
-  -> (Module, Expression)
-compileInfix m locals operator a b =
-  let (m', aExpr) = compileExpression m locals a
-      (m'', bExpr) = compileExpression m' locals b
-      name = (F.Ident $ F.NonEmptyString 's' "tring_add")
-   in case (operator, T.typeOf b) of
-        (F.StringAdd, T.Str) -> (m'', NamedCall name [aExpr, bExpr])
-        (_, t) -> (m'', Call (funcForOperator operator t) [aExpr, bExpr])
+  -> DeclarationCompileState Expression
+compileInfix locals operator a b = do
+  aExpr <- compileExpression locals a
+  bExpr <- compileExpression locals b
+  let name = (F.Ident $ F.NonEmptyString 's' "tring_add")
+  return $
+    case (operator, T.typeOf b) of
+      (F.StringAdd, T.Str) -> NamedCall name [aExpr, bExpr]
+      (_, t) -> Call (funcForOperator operator t) [aExpr, bExpr]
 
 compileApply ::
-     Module
-  -> Locals
-  -> TypedExpression
-  -> TypedExpression
-  -> (Module, Expression)
-compileApply m locals left right =
+     Locals -> TypedExpression -> TypedExpression -> DeclarationCompileState Expression
+compileApply locals left right =
   case left of
-    T.Apply t (T.Identifier _ name) r' ->
-      let (m', exprs) = compileExpressions m [right, r']
-       in ( m'
-          , Sequence (forestTypeToWasmType t) $
-            NE.fromList (exprs <> [NamedCall (symbolToIdent name) []]))
-    T.Identifier _ name ->
-      let (m', r) = compileExpression m locals right
-       in (m', NamedCall (symbolToIdent name) [r])
+    T.Apply t (T.Identifier _ name) r' -> do
+      exprs <- compileExpressions [right, r']
+      return $
+        (Block (forestTypeToWasmType t) $
+         NE.fromList (exprs <> [NamedCall (symbolToIdent name) []]))
+    T.Identifier _ name -> do
+      r <- compileExpression locals right
+      return $ NamedCall (symbolToIdent name) [r]
     _ -> error $ "do not know what to do with " <> show left
 
 compileLet ::
-     Module
-  -> Locals
+     Locals
   -> NonEmpty TypedDeclaration
   -> TypedExpression
-  -> (Module, Expression)
-compileLet m locals@(Locals l) declarations fexpr =
-  let compileDeclaration' ::
-           (Module, [Expression]) -> TypedDeclaration -> (Module, [Expression])
-      compileDeclaration' (m', declarations) declaration =
-        let (mExpr, m'') = compileInlineDeclaration m' locals declaration
-         in case mExpr of
-              Just expr -> (m'', declarations <> [expr])
-              Nothing -> (m'', declarations)
-      (m', declarationExpressions) =
-        foldl compileDeclaration' (m, []) declarations
-      names =
-        NE.toList $ (\(TypedDeclaration name _ _ _) -> name) <$> declarations
-      locals' = Locals $ Set.union l (Set.fromList (symbolToIdent <$> names))
-      (m'', expr') = compileExpression m' locals' fexpr
-   in ( m''
-      , Sequence (forestTypeToWasmType (T.typeOf fexpr)) $
-        NE.fromList (declarationExpressions <> [expr']))
+  -> DeclarationCompileState Expression
+compileLet locals@(Locals l) declarations fexpr = do
+  declarationExpressions <- foldM compileDeclaration' [] declarations
+  expr' <- compileExpression locals' fexpr
+  return $
+    (Block (forestTypeToWasmType (T.typeOf fexpr)) $
+     NE.fromList (declarationExpressions <> [expr']))
+  where
+    compileDeclaration' ::
+         [Expression] -> TypedDeclaration -> DeclarationCompileState [Expression]
+    compileDeclaration' declarations declaration = do
+      mExpr <- compileInlineDeclaration locals declaration
+      return $
+        case mExpr of
+          Just expr -> declarations <> [expr]
+          Nothing -> declarations
+    names =
+      NE.toList $ (\(TypedDeclaration name _ _ _) -> name) <$> declarations
+    locals' = Locals $ Set.union l (Set.fromList (symbolToIdent <$> names))
 
 compileCase ::
-     Module
-  -> Locals
+     Locals
+  -> WasmType
   -> TypedExpression
   -> NonEmpty (TypedArgument, TypedExpression)
-  -> (Module, Expression)
-compileCase m locals caseFexpr patterns =
-  let (m', caseExpr) = compileCaseExpression m locals caseFexpr
-      (m'', patternExprs) = patternsToWasm m' caseFexpr patterns
-   in (m'', constructCase caseExpr patternExprs)
+  -> DeclarationCompileState Expression
+compileCase locals _ caseFexpr patterns = do
+    (resultLocal, caseExpr) <- compileCaseExpression locals caseFexpr
+    patternExprs <- patternsToWasm resultLocal patterns
+    return $ Sequence [caseExpr, constructCase (GetLocal resultLocal) patternExprs]
   where
     constructCase ::
          Expression -> NE.NonEmpty (Expression, Expression) -> Expression
@@ -330,27 +351,36 @@ compileCase m locals caseFexpr patterns =
             (snd x)
             (Just (constructCase caseExpr (NE.fromList xs)))
     patternsToWasm ::
-         Module
-      -> T.TypedExpression
-      -> NE.NonEmpty (T.TypedArgument, T.TypedExpression)
-      -> (Module, NonEmpty (Expression, Expression))
-    patternsToWasm m caseFexpr patterns =
+        F.Ident ->
+         NE.NonEmpty (T.TypedArgument, T.TypedExpression)
+      -> DeclarationCompileState (NonEmpty (Expression, Expression))
+    patternsToWasm caseResultIdent patterns =
       let compilePattern ::
-               (Module, [(Expression, Expression)])
+               [(Expression, Expression)]
             -> (T.TypedArgument, T.TypedExpression)
-            -> (Module, [(Expression, Expression)])
-          compilePattern (m', exprs) (a, b) =
-            let (m'', aExpr, locals') = compileArgument m' caseFexpr a
-                (m''', bExpr) =
-                  compileExpression m'' (mergeLocals locals locals') b
-             in (m''', exprs <> [(aExpr, bExpr)])
-          (m', exprs) = foldl compilePattern (m, []) patterns
-       in (m', NE.fromList exprs)
+            -> DeclarationCompileState [(Expression, Expression)]
+          compilePattern exprs (a, b) = do
+            (aExpr, locals') <- compileCaseArgument a
+            bExpr <- compileExpression (mergeLocals locals locals') b
+            return $ exprs <> [(aExpr, bExpr)]
+          exprs = foldM compilePattern [] patterns
+       in NE.fromList <$> exprs
+      where
+        compileCaseArgument a =
+          case a of
+            T.TAIdentifier t s ->
+              return $
+              ( TeeLocal
+                  (symbolToIdent s)
+                  (forestTypeToWasmType t)
+                  (GetLocal caseResultIdent)
+              , addLocal (symbolToIdent s) noLocals)
+            _ -> compileArgument caseFexpr a
 
 compileADTConstruction ::
      (Functor t, Foldable t) => Int -> t T.TypedArgument -> Expression
 compileADTConstruction tag args =
-  Sequence
+  Block
     I32
     (NE.fromList
        ([ SetLocal
@@ -372,32 +402,34 @@ compileADTConstruction tag args =
         , GetLocal i
         ]
 
-compileString :: Module -> Text -> (Module, Expression)
-compileString m str =
-  let (Module _ address) = m
-      m' = addTopLevel m [Data address str]
-      m'' = allocateBytes m' (Text.length str + 1)
-   in (m'', Const address)
+compileString :: Text -> DeclarationCompileState Expression
+compileString str = lift $ do
+  address <- getAddress
+  addTopLevel [Data address str]
+  allocateBytes (Text.length str + 1)
+  return $ Const address
 
-compileExpression :: Module -> Locals -> TypedExpression -> (Module, Expression)
-compileExpression m locals@(Locals l) fexpr =
+compileExpression :: Locals -> TypedExpression -> DeclarationCompileState Expression
+compileExpression locals@(Locals l) fexpr =
   case fexpr of
-    T.Identifier t i -> (m, compileIdentifer t (symbolToIdent i) l)
-    T.Number n -> (m, Const n)
-    T.Float f -> (m, FloatConst f)
-    T.BetweenParens fexpr -> compileExpression m locals fexpr
-    T.Infix _ operator a b -> compileInfix m locals operator a b
-    T.Apply _ left right -> compileApply m locals left right
-    T.Case _ caseFexpr patterns -> compileCase m locals caseFexpr patterns
-    T.Let declarations fexpr -> compileLet m locals declarations fexpr
-    T.String' str -> compileString m str
-    T.ADTConstruction tag args -> (m, compileADTConstruction tag args)
+    T.Identifier t i -> return $ compileIdentifer t (symbolToIdent i) l
+    T.Number n -> return $ Const n
+    T.Float f -> return $ FloatConst f
+    T.BetweenParens fexpr -> compileExpression locals fexpr
+    T.Infix _ operator a b -> compileInfix locals operator a b
+    T.Apply _ left right -> compileApply locals left right
+    T.Case t caseFexpr patterns -> compileCase locals (forestTypeToWasmType t) caseFexpr patterns
+    T.Let declarations fexpr -> compileLet locals declarations fexpr
+    T.String' str -> compileString str
+    T.ADTConstruction tag args -> return $ compileADTConstruction tag args
 
 assignments :: T.TypedArgument -> State UniqueLocals [Expression]
 assignments (T.TAIdentifier _ _) = pure []
 assignments (T.TADeconstruction (T.BindingSymbol i) _ _ args) =
   concat <$>
-  traverse (uncurry (compileDeconstructionAssignment (symbolToIdent i))) (zip args [1 ..])
+  traverse
+    (uncurry (compileDeconstructionAssignment (symbolToIdent i)))
+    (zip args [1 ..])
 assignments (T.TANumberLiteral _) = pure []
 
 argTypes :: Foldable t => t T.TypedArgument -> [(F.Ident, WasmType)]
@@ -406,9 +438,10 @@ argTypes = concatMap argType
 argType :: T.TypedArgument -> [(F.Ident, WasmType)]
 argType (T.TAIdentifier t i) = [(symbolToIdent i, forestTypeToWasmType t)]
 argType (T.TANumberLiteral _) = []
-argType (T.TADeconstruction (T.BindingSymbol i) _ _ _) = [(symbolToIdent i, I32)]
+argType (T.TADeconstruction (T.BindingSymbol i) _ _ _) =
+  [(symbolToIdent i, I32)]
 
-getUniqueLocal :: F.Ident -> State UniqueLocals F.Ident
+getUniqueLocal :: Monad a => F.Ident -> StateT UniqueLocals a F.Ident
 getUniqueLocal i = do
   count <- gets countForIdent
   modify updateCount
@@ -434,7 +467,7 @@ compileDeconstructionAssignment i a n =
     T.TADeconstruction (T.BindingSymbol symbol) _ _ args -> do
       let assignment =
             [ SetLocal
-               (symbolToIdent symbol)
+                (symbolToIdent symbol)
                 I32
                 (Call
                    (ident "i32.load")
@@ -446,24 +479,27 @@ compileDeconstructionAssignment i a n =
            (uncurry (compileDeconstructionAssignment (symbolToIdent symbol)))
            (zip args [1 ..]))
 
-compileCaseExpression ::
-     Module -> Locals -> T.TypedExpression -> (Module, Expression)
-compileCaseExpression m locals fexpr =
-  case fexpr of
-    Identifier (T.Applied _ _) i -> (m, Call (ident "i32.load") [GetLocal (symbolToIdent i)])
-    Identifier (T.TL (T.TypeLambda _)) i ->
-      (m, Call (ident "i32.load") [GetLocal (symbolToIdent i)])
-    _ -> compileExpression m locals fexpr
+compileCaseExpression :: Locals -> T.TypedExpression -> DeclarationCompileState (F.Ident, Expression)
+compileCaseExpression locals fexpr =
+  let body =
+        case fexpr of
+          Identifier (T.Applied _ _) i ->
+            return $ Call (ident "i32.load") [GetLocal (symbolToIdent i)]
+          Identifier (T.TL (T.TypeLambda _)) i ->
+            return $ Call (ident "i32.load") [GetLocal (symbolToIdent i)]
+          _ -> compileExpression locals fexpr
+   in do
+      uniqueLocal <- getUniqueLocal (ident "case_result")
+      expr <- SetLocal uniqueLocal (forestTypeToWasmType (typeOf fexpr)) <$> body
+      return (uniqueLocal, expr)
 
 compileArgument ::
-     Module
-  -> T.TypedExpression
-  -> TypedArgument
-  -> (Module, Expression, Locals)
-compileArgument m caseFexpr arg =
+     T.TypedExpression -> TypedArgument -> DeclarationCompileState (Expression, Locals)
+compileArgument caseFexpr arg =
   case arg of
-    T.TAIdentifier _ i -> (m, GetLocal (symbolToIdent i), addLocal (symbolToIdent i) noLocals)
-    T.TANumberLiteral n -> (m, Const n, noLocals)
+    T.TAIdentifier _ i ->
+      return $ (GetLocal (symbolToIdent i), addLocal (symbolToIdent i) noLocals)
+    T.TANumberLiteral n -> return $ (Const n, noLocals)
     T.TADeconstruction _ _ tag args ->
       let assignments = mapMaybe makeAssignment (zip args [1 ..])
           makeAssignment :: (T.TypedArgument, Int) -> Maybe Expression
@@ -483,7 +519,8 @@ compileArgument m caseFexpr arg =
           localName (TAIdentifier _ symbol) = Just (symbolToIdent symbol)
           localName _ = Nothing
           locals = addLocals (mapMaybe localName args) noLocals
-       in (m, Sequence I32 (NE.fromList (assignments <> [Const tag])), locals)
+       in return $
+          (Block I32 (NE.fromList (assignments <> [Const tag])), locals)
   where
     caseLocal =
       case caseFexpr of
@@ -558,7 +595,8 @@ printWasmTopLevel topLevel =
 printWasmExpr :: Expression -> Text
 printWasmExpr expr =
   case expr of
-    Sequence wasmType exprs ->
+    Sequence exprs -> Text.intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)
+    Block wasmType exprs ->
       "(block (result " <> printWasmType wasmType <> ")\n" <>
       indent2 (Text.intercalate "\n" $ NE.toList (printWasmExpr <$> exprs)) <>
       "\n)"
@@ -567,6 +605,8 @@ printWasmExpr expr =
     GetLocal name -> "(get_local $" <> F.s name <> ")"
     SetLocal name _ expr' ->
       "(set_local $" <> F.s name <> " " <> printWasmExpr expr' <> ")"
+    TeeLocal name _ expr' ->
+      "(tee_local $" <> F.s name <> " " <> printWasmExpr expr' <> ")"
     Call name args ->
       "(" <> F.s name <> "\n" <>
       indent2 (Text.intercalate "\n" (printWasmExpr <$> args)) <>
@@ -606,14 +646,17 @@ printDeclaration (Declaration name args wasmType body) =
     locals :: Expression -> [(Text, WasmType)]
     locals expr' =
       case expr' of
+        TeeLocal name wasmType _ -> [(F.s name, wasmType)]
         SetLocal name wasmType _ -> [(F.s name, wasmType)]
-        Sequence _ exprs -> concatMap locals $ NE.toList exprs
+        Sequence exprs -> concatMap locals $ NE.toList exprs
+        Block _ exprs -> concatMap locals $ NE.toList exprs
         If expr expr' mexpr ->
           locals expr <> locals expr' <> maybe [] locals mexpr
         Call _ exprs -> concatMap locals exprs
         NamedCall _ exprs -> concatMap locals exprs
-        _ -> []
-    -- TODO - there are probably other important cases we should handle here
+        Const _ -> []
+        FloatConst _ -> []
+        GetLocal _ -> []
 
 printLocal :: (Text, WasmType) -> Text
 printLocal (name, wasmType) =
@@ -624,4 +667,4 @@ ident t = F.Ident $ F.NonEmptyString (Text.head t) (Text.tail t)
 
 symbolToIdent :: T.Symbol -> F.Ident
 symbolToIdent (Symbol n i) =
-  ident (F.s i <> "_" <> showT n)
+    if F.s i == "main" then ident "main" else ident (F.s i <> "_" <> showT n)

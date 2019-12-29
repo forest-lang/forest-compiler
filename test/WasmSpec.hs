@@ -82,7 +82,7 @@ wasmSpecs =
                    (Ident (NonEmptyString 'g' "etX_0"))
                    [(Ident (NonEmptyString 'P' "layer_99"), I32)]
                    F32
-                   (Sequence
+                   (Block
                       F32
                       (SetLocal
                          (Ident (NonEmptyString 'x' "_1"))
