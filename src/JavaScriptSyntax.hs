@@ -1,62 +1,101 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JavaScriptSyntax
   ( printModule
   ) where
 
 import Data.List (intercalate)
+import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (toList)
+import Data.Semigroup
+import Data.Text (Text)
+import qualified Data.Text as T
 import Language
 
-indent :: Int -> String -> String
-indent level str =
-  intercalate "\n" $ map (\line -> replicate level ' ' ++ line) (lines str)
+showT :: Show a => a -> Text
+showT = T.pack . show
 
-indent2 :: String -> String
+indent :: Int -> Text -> Text
+indent level str =
+  T.intercalate "\n" $
+  map (\line -> T.replicate level " " <> line) (T.lines str)
+
+indent2 :: Text -> Text
 indent2 = indent 2
 
-printModule :: Module -> String
+printModule :: Module -> Text
 printModule (Module topLevels) =
-  (intercalate "\n\n" $ map printTopLevel topLevels) ++ "\n"
+  (T.intercalate "\n\n" $ map printTopLevel topLevels) <> "\n"
 
-printTopLevel :: TopLevel -> String
+printTopLevel :: TopLevel -> Text
 printTopLevel topLevel =
   case topLevel of
     Function declaration -> printDeclaration declaration
-    DataType _ -> undefined
+    DataType (ADT name generics ctors) ->
+      "type " <> s name <> printedGenerics <> " =" <>
+      indent 2 printedCtors
+      where printedGenerics =
+              case generics of
+                 [] -> ""
+                 _ -> "<" <> T.intercalate ", " (s <$> generics) <> ">"
+            printedCtors = T.intercalate " | " (printCtor <$> (NE.toList ctors))
+            printCtor (Constructor name maybeType) =
+              s name <> " " <> maybe "" printConstructorType maybeType
+            printConstructorType ctorType =
+              case ctorType of
+                CTConcrete i -> s i
+                CTApplied a b ->
+                  printConstructorType a <> " " <> printConstructorType b
+                CTParenthesized ct -> parens (printConstructorType ct)
 
-printDeclaration :: Declaration -> String
+printDeclaration :: Declaration -> Text
 printDeclaration (Declaration _ name args expression) =
-  "function " ++
-  s name ++
-  printedArgs ++ " {\n  return " ++ printExpression expression ++ "\n}"
+  "function " <> s name <> printedArgs <> " {\n  return " <>
+  printExpression expression <>
+  "\n}"
   where
-    printedArgs = parens $ intercalate ", " $ map s args
+    printedArgs = parens $ T.intercalate ", " $ map printArgument args
 
-printExpression :: Expression -> String
+printExpression :: Expression -> Text
 printExpression expression =
   case expression of
-    Number number -> show number
+    Number number -> showT number
+    Float f -> showT f
     Identifier identifier -> s identifier
     Infix operator a b ->
-      intercalate
+      T.intercalate
         " "
         [printExpression a, printOperator operator, printExpression b]
-    String' string -> show string
-    Call name args ->
-      s name ++ parens (intercalate ", " (map printExpression args))
+    String' string -> showT string
+    Apply a b -> printExpression a <> parens (printExpression b)
     BetweenParens expression -> parens $ printExpression expression
     Case expression branches ->
-      "switch " ++
-      parens (printExpression expression) ++
-      " {\n" ++ indent 4 (printBranches branches) ++ "\n  }"
-    _ -> error $ "not implemented " ++ show expression
+      "switch " <> parens (printExpression expression) <> " {\n" <>
+      indent 4 (printBranches branches) <>
+      "\n  }"
+    Let declarations expr ->
+      indent
+        2
+        (T.intercalate
+           "\n"
+           ((printDeclaration <$>
+            (NE.toList declarations)) <> [printExpression expr]))
   where
     printBranches branches =
-      intercalate "\n" $ toList $ fmap printBranch branches
+      T.intercalate "\n" $ toList $ fmap printBranch branches
     printBranch (condition, body) =
-      "case " ++
-      printExpression condition ++ ":\n" ++ indent2 (printExpression body)
+      "case " <> printArgument condition <> ":\n" <>
+      indent2 (printExpression body)
 
-printOperator :: OperatorExpr -> String
+printArgument :: Argument -> Text
+printArgument a =
+  case a of
+    AIdentifier n -> s n
+    ADeconstruction name args ->
+      s name <> parens (T.intercalate ", " (printArgument <$> args))
+    ANumberLiteral i -> showT i
+
+printOperator :: OperatorExpr -> Text
 printOperator operator =
   case operator of
     Add -> "+"
@@ -65,5 +104,5 @@ printOperator operator =
     Multiply -> "*"
     StringAdd -> "++"
 
-parens :: String -> String
-parens s = "(" ++ s ++ ")"
+parens :: Text -> Text
+parens s = "(" <> s <> ")"

@@ -38,5 +38,5 @@ compile code = printWasm . forestModuleToWasm <$> typeCheck code
 format :: Text -> Either ParseError' Text
 format s = printModule <$> parseModule s
 
-formatJS :: String -> Either ParseError' String
+formatJS :: Text -> Either ParseError' Text
 formatJS s = JS.printModule <$> parseModule s
