@@ -109,6 +109,12 @@ data Symbol =
          Ident
   deriving (Show, Eq, G.Generic)
 
+data Closure = Closure Symbol
+  deriving (Show, Eq, G.Generic)
+
+data TypedClosureDeclaration = TypedClosureDeclaration [Closure] TypedDeclaration
+  deriving (Show, Eq, G.Generic)
+
 data TypedExpression
   = Identifier Type
                Symbol
@@ -124,7 +130,7 @@ data TypedExpression
   | Case Type
          TypedExpression
          (NE.NonEmpty (TypedArgument, TypedExpression))
-  | Let (NE.NonEmpty TypedDeclaration)
+  | Let (NE.NonEmpty TypedClosureDeclaration)
         TypedExpression
   | BetweenParens TypedExpression
   | String' Text
@@ -630,9 +636,18 @@ inferLetType state declarations' value exprPosition _ =
       types = branchTypes [] (NE.toList declarations')
       expression :: [TypedDeclaration] -> CompilationSymbolsT TypedExpression
       expression b =
-        (TypeChecker.Let (NE.fromList b) <$>
+        (TypeChecker.Let (NE.fromList (inferDeclarationClosures <$> b)) <$>
          inferType (addDeclarations state b) value exprPosition)
    in types >>= expression
+
+inferDeclarationClosures :: TypedDeclaration -> TypedClosureDeclaration
+inferDeclarationClosures td@(TypedDeclaration _ args t body) =
+  TypedClosureDeclaration (closures body) td
+  where
+    closures :: TypedExpression -> [Closure]
+    closures expr =
+      case expr of
+        _ -> []
 
 inferType ::
      CompileState
