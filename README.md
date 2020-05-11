@@ -129,9 +129,8 @@ Right now, it supports:
  * a type system (simple but there)
  * ADTs
  * lists
- 
+
 Critical missing features:
-  * code generation for generic ADTs
   * an effect system
   * a standard library of data structures
   * a module system
