@@ -223,6 +223,21 @@ def run_tests
 
   testCode('nested_deconstruction', code, 30)
 
+  code = <<~FOREST
+    main :: Int
+    main =
+      let
+        a :: Int
+        a = 5
+
+        calc :: Int -> Int
+        calc n = n + a
+      in
+        calc 7
+  FOREST
+
+  testCode('closure', code, 12)
+
   # TODO - adt decontruction with two things with the same type - duplicate local name
 
   puts 'Integration tests ran successfully!'

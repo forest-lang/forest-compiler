@@ -204,7 +204,7 @@ genInfix :: Gen Expression
 genInfix = do
   operator <- genOperator
   a <- genNumber -- TODO expand this definition
-  b <- genExpression `suchThat` applicationIsExcluded
+  b <- genExpression
   return $ BetweenParens $ Infix operator a b
 
 genCall :: Gen Expression
@@ -222,7 +222,7 @@ genCall = do
       [ genIdentifier
       , genNumber
       , genString
-      , BetweenParens <$> genExpression `suchThat` applicationIsExcluded
+      , BetweenParens <$> genExpression
       ]
   return $ Apply a b
 

@@ -1,0 +1,11 @@
+
+main :: Int
+main =
+  let
+    a :: Int
+    a = 5
+
+    calc :: Int -> Int
+    calc n = n + a
+  in
+    calc 7

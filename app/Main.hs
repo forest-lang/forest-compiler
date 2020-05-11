@@ -106,7 +106,7 @@ main = do
                   colorLine line =
                     let (lineStart, remainder) =
                           Text.splitAt (unPos (sourceColumn start) + 3) line
-                        (highlight, lineEnd) = Text.splitAt (unPos (sourceColumn end) - unPos (sourceColumn start)) remainder
+                        (highlight, lineEnd) = Text.splitAt (unPos (sourceColumn end) - unPos (sourceColumn start) + 1) remainder
                      in [ chunk lineStart
                         , chunk highlight & underline & fore brightRed
                         , chunk lineEnd
@@ -116,6 +116,7 @@ main = do
                        lineNumber <= unPos (sourceLine end)
                       then colorLine line
                       else [chunk line]
+                  -- TODO rightpad line numbers so that they don't change when the number of digits varies
                   contextLines =
                     concatMap
                       (\(lineNumber, line) ->

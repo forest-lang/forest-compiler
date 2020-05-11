@@ -11,6 +11,8 @@ import Data.Either
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Set.Ordered (OSet)
+import qualified Data.Set.Ordered as OSet
 import Data.Text (Text, unpack)
 import qualified Data.Text as T
 import System.Exit
@@ -60,20 +62,24 @@ wasmSpecs =
               [ TypedDeclaration
                   (Symbol 0 $ Ident (NonEmptyString 'g' "etX"))
                   [ TADeconstruction
-                      (BindingSymbol . Symbol 99 $ Ident (NonEmptyString 'P' "layer"))
-                      (ConstructorSymbol . Symbol 0 $ Ident (NonEmptyString 'P' "layer"))
+                      (BindingSymbol . Symbol 99 $
+                       Ident (NonEmptyString 'P' "layer"))
+                      (ConstructorSymbol . Symbol 0 $
+                       Ident (NonEmptyString 'P' "layer"))
                       0
                       [ TAIdentifier
                           Float'
                           (Symbol 1 $ Ident (NonEmptyString 'x' ""))
                       ]
                   ]
+                  OSet.empty
                   (Lambda
                      (TL (TypeLambda (Ident (NonEmptyString 'P' "layer"))))
                      Float')
                   (TypeChecker.Identifier
                      Float'
-                     (Symbol 1 $ Ident (NonEmptyString 'x' "")))
+                     (Symbol 1 $ Ident (NonEmptyString 'x' ""))
+                     OSet.empty)
               ]
        in forestModuleToWasm typedModule `shouldBe`
           Wasm.Module
