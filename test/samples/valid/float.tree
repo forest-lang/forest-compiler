@@ -1,4 +1,4 @@
 
 main :: Float
-main = 5.5
+main = 0.5
 

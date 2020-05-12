@@ -460,7 +460,7 @@ checkDeclaration state declaration position exprPosition = do
   expectedReturnType <-
     (case (NE.drop (length args) annotationTypes) of
        (x:xs) -> return $ collapseTypes (x :| xs)
-       _ -> throwError $ compileError "Not enough args")
+       _ -> throwError $ compileError "Not enough args") -- TODO - could be too many?
   let typedDeclaration =
         TypedDeclaration
           symbol
@@ -573,8 +573,11 @@ inferIdentifierType state name compileError =
   case find (m name) declarations of
     Just (Closure, TypedDeclaration s _ bindings t _) -> do
       _ <- addClosureBinding $ ClosureBinding s t
+      _ <- sequence_ $ addClosureBinding <$> OSet.toAscList bindings
       return $ TypeChecker.Identifier t s bindings
-    Just (_, TypedDeclaration s _ bindings t _) -> return $ TypeChecker.Identifier t s bindings
+    Just (_, TypedDeclaration s _ bindings t _) -> do
+      _ <- sequence_ $ addClosureBinding <$> OSet.toAscList bindings
+      return $ TypeChecker.Identifier t s bindings
     Nothing ->
       throwError $
       compileError

@@ -23,8 +23,8 @@ update (State (Vector2 x y) (Vector2 vx vy)) input =
     accel :: Float
     accel = 0.1
 
-    newVelocity :: Int -> Vector2
-    newVelocity i =
+    newVelocity :: Vector2
+    newVelocity =
       case input of
         Up ->
           Vector2 vx (vy - accel)
@@ -37,10 +37,14 @@ update (State (Vector2 x y) (Vector2 vx vy)) input =
         NoInput ->
           Vector2 vx vy
 
-    newPosition :: Int -> Vector2
-    newPosition i = Vector2 (x + getX (newVelocity 0)) (y + getY (newVelocity 0))
+    newPosition :: Vector2
+    newPosition = Vector2 (x + getX newVelocity) (y + getY newVelocity)
   in
-    State (newPosition 0) (newVelocity 0)
+    State (newPosition) (newVelocity)
 
 init :: State
-init = State (Vector2 50.0 50.0) (Vector2 0.0 0.0)
+init = State (Vector2 80.0 50.0) (Vector2 0.0 0.0)
+
+getPosition :: State -> Vector2
+getPosition (State p v) = p
+

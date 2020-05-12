@@ -9,37 +9,38 @@
   var context = canvas.getContext('2d');
 
   function runGame(exports) {
-    var state = exports.init();
-    var input = exports.NoInput();
+    var state = exports.init_37();
+    var input = exports.NoInput_11();
 
     document.addEventListener('keydown', (event) => {
       if (event.key == 'w') {
-        input = exports.Up();
+        input = exports.Up_7();
       }
 
       if (event.key == 'a') {
-        input = exports.Left();
+        input = exports.Left_9();
       }
 
       if (event.key == 's') {
-        input = exports.Down();
+        input = exports.Down_8();
       }
 
       if (event.key == 'd') {
-        input = exports.Right();
+        input = exports.Right_10();
       }
     });
 
     function loop() {
-      state = exports.update(state, input);
-      input = exports.NoInput();
+      state = exports.update_20(state, input);
+      input = exports.NoInput_11();
 
       context.fillStyle = 'white';
       context.fillRect(0, 0, canvas.width, canvas.height);
 
       context.fillStyle = 'black';
-      var x = exports.x(state);
-      var y = exports.y(state);
+      var position = exports.getPosition_38(state);
+      var x = exports.getX_12(position);
+      var y = exports.getY_16(position);
       context.fillRect(x, y, 50, 50);
 
       requestAnimationFrame(loop);

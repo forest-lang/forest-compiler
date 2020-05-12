@@ -149,7 +149,11 @@ float =
     fractional <- Lexer.decimal
     return $
       fromIntegral integer +
-      (fromIntegral fractional / 10) * signum (fromIntegral integer)
+      (fromIntegral fractional / 10) * signumNoZero (fromIntegral integer)
+
+signumNoZero :: Num a => Eq a => a -> a
+signumNoZero 0 = 1
+signumNoZero n = signum n
 
 number :: Parser Expression
 number = Number <$> (whiteSpace *> Lexer.decimal)

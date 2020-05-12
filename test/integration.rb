@@ -238,8 +238,6 @@ def run_tests
 
   testCode('closure', code, 12)
 
-  # TODO - adt decontruction with two things with the same type - duplicate local name
-
   puts 'Integration tests ran successfully!'
 end
 
