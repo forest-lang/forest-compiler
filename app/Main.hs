@@ -71,6 +71,14 @@ main = do
         Left err ->
           (TIO.hPutStrLn stderr $ reportParseError filename err) >>
           exitWith (ExitFailure 1)
+    ["format-js", filename] -> do
+      contents <- TIO.readFile filename
+      case formatJS contents of
+        Right formattedCode ->
+          TIO.putStrLn formattedCode
+        Left err ->
+          (TIO.hPutStrLn stderr $ reportParseError filename err) >>
+          exitWith (ExitFailure 1)
     ["check", filename] -> do
       contents <- TIO.readFile filename
       let (printText, exitCode) =

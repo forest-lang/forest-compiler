@@ -1,0 +1,8 @@
+function test(a) {
+  return switch (a) {
+    case "Foo":
+      "Bar"
+    case "Ahh":
+      "Woo"
+  }
+}

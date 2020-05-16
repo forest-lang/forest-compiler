@@ -28,3 +28,4 @@ main = do
     iSampleSpecs
     wasmSpecs
     haskellSyntaxSpecs
+    javaScriptSyntaxSpecs
