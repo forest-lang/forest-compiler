@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 module Compiler
-  ( compile
+  ( Compiler.compile
   , format
   , typeCheck
   , Result(..)
@@ -13,6 +13,7 @@ import Data.Text (Text)
 
 import HaskellSyntax
 import TypeChecker
+import MemoryManagement
 import Wasm
 
 data Result a

@@ -1,12 +1,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
 
 module TypeChecker
   ( checkModule
   , checkModuleWithLineInformation
-  , BindingSymbol(..)
   , ConstructorSymbol(..)
   , CompileError(..)
   , Symbol(..)
@@ -15,6 +15,8 @@ module TypeChecker
   , TypedExpression(..)
   , TypedArgument(..)
   , ClosureBinding(..)
+  , Binding(..)
+  , Scope(..)
   , typeOf
   , Type(..)
   , InvalidConstruct(..)
@@ -65,16 +67,11 @@ data InvalidConstruct
   | DataTypeError ADT
   deriving (Eq, Show)
 
-data BindingType
-  = Closure
-  | Local
-  deriving (Eq, Show)
-
 data CompileState = CompileState
   { errors :: [CompileError]
   , typeLambdas :: [TypeLambda]
   , types :: Map Ident Type
-  , typedDeclarations :: [(BindingType, TypedDeclaration)]
+  , typedDeclarations :: [(Scope, TypedDeclaration)]
   , typeConstructors :: Map TypeLambda [TypedConstructor]
   } deriving (Eq, Show)
 
@@ -83,6 +80,7 @@ data TypedConstructor =
                    Int
                    [Type]
   deriving (Eq, Show)
+
 data Type
   = Num
   | Float' -- TODO a better name, perhaps declare in another module? :(
@@ -92,7 +90,7 @@ data Type
   | Applied Type
             Type
   | Generic Ident
-  | TL TypeLambda
+  | TL TypeLambda -- TODO - need a better name. is this just an ADT
   deriving (Eq, Show, Ord)
 
 newtype TypeLambda =
@@ -121,9 +119,19 @@ data Symbol =
          Ident
   deriving (Show, Eq, G.Generic, Ord)
 
+data Scope
+  = Local
+  | Closure
+  | Global
+  deriving (Show, Eq, G.Generic, Ord)
+
+data Binding =
+  Binding Scope Symbol
+  deriving (Show, Eq, G.Generic, Ord)
+
 data TypedExpression
   = Identifier Type
-               Symbol
+               Binding
                (OSet ClosureBinding)
   | Number Int
   | Float Float
@@ -139,17 +147,16 @@ data TypedExpression
          (NE.NonEmpty (TypedArgument, TypedExpression))
   | Let (NE.NonEmpty TypedDeclaration)
         TypedExpression
-  | BetweenParens TypedExpression
   | String' Text
-  | ADTConstruction Int
+  | ADTConstruction Int FunctionType
                     [TypedArgument]
   deriving (Show, Eq, G.Generic)
 
 data TypedArgument
   = TAIdentifier Type
                  Symbol
-  | TANumberLiteral Int
-  | TADeconstruction BindingSymbol
+  | TANumberLiteral Int -- TODO this shouldn't really be propagated, it's syntax sugar
+  | TADeconstruction Symbol
                      ConstructorSymbol
                      Int
                      [TypedArgument]
@@ -157,10 +164,6 @@ data TypedArgument
 
 newtype ConstructorSymbol =
   ConstructorSymbol Symbol
-  deriving (Show, Eq, G.Generic)
-
-newtype BindingSymbol =
-  BindingSymbol Symbol
   deriving (Show, Eq, G.Generic)
 
 data Symbols =
@@ -215,6 +218,13 @@ topLevelPosition (LineInformation _ topLevelPositions) topLevel =
 
 addDeclarations :: CompileState -> [TypedDeclaration] -> CompileState
 addDeclarations state declarations =
+  state
+    { typedDeclarations =
+        ((Global, ) <$> declarations) <> typedDeclarations state
+    }
+
+addLocals :: CompileState -> [TypedDeclaration] -> CompileState
+addLocals state declarations =
   state
     { typedDeclarations =
         ((Local, ) <$> declarations) <> typedDeclarations state
@@ -347,7 +357,7 @@ checkDataType state adt@(ADT name generics constructors) position = do
               typedArgument
               OSet.empty
               t
-              (TypeChecker.ADTConstruction tag typedArgument)
+              (TypeChecker.ADTConstruction tag Standard typedArgument)
           rType :: CompilationSymbols Type
           rType = (maybe (return returnType) constructorType types')
        in declarationFromType <$> rType <*> arguments
@@ -470,7 +480,7 @@ checkDeclaration state declaration position exprPosition = do
           (TypeChecker.Number 0)
   let actualReturnType =
         inferType
-          (addDeclarations state (typedDeclaration : locals))
+          (addLocals state (typedDeclaration : locals))
           expr
           exprPosition
   let typeChecks ::
@@ -507,7 +517,7 @@ checkDeclaration state declaration position exprPosition = do
         TANumberLiteral _ -> []
     makeDeclaration :: Type -> Symbol -> TypedDeclaration
     makeDeclaration t i =
-      TypedDeclaration i [] OSet.empty t (TypeChecker.Identifier t i OSet.empty)
+      TypedDeclaration i [] OSet.empty t (TypeChecker.Identifier t (Binding Local i) OSet.empty)
 
 lambdaType :: Type -> Type -> [Type] -> Type
 lambdaType left right remainder =
@@ -525,9 +535,8 @@ typeOf t =
     TypeChecker.Infix t _ _ _ -> t
     TypeChecker.Case t _ _ -> t
     TypeChecker.Let _ te -> typeOf te
-    TypeChecker.BetweenParens te -> typeOf te
     TypeChecker.String' _ -> Str
-    TypeChecker.ADTConstruction _ _ -> Lambda Num Num -- TODO - make this real
+    TypeChecker.ADTConstruction _ _ _ -> Lambda Num Num -- TODO - make this real
 
 inferApplicationType ::
      CompileState
@@ -567,17 +576,18 @@ inferApplicationType state a b exprPosition compileError =
 inferIdentifierType ::
      CompileState
   -> Ident
+  -> FunctionType
   -> (Text -> CompileError)
   -> DeclarationCompilation TypedExpression
-inferIdentifierType state name compileError =
+inferIdentifierType state name _ compileError =
   case find (m name) declarations of
     Just (Closure, TypedDeclaration s _ bindings t _) -> do
       _ <- addClosureBinding $ ClosureBinding s t
       _ <- sequence_ $ addClosureBinding <$> OSet.toAscList bindings
-      return $ TypeChecker.Identifier t s bindings
-    Just (_, TypedDeclaration s _ bindings t _) -> do
+      return $ TypeChecker.Identifier t (Binding Closure s) bindings
+    Just (scope, TypedDeclaration s _ bindings t _) -> do
       _ <- sequence_ $ addClosureBinding <$> OSet.toAscList bindings
-      return $ TypeChecker.Identifier t s bindings
+      return $ TypeChecker.Identifier t (Binding scope s) bindings
     Nothing ->
       throwError $
       compileError
@@ -636,7 +646,7 @@ inferCaseType state value branches exprPosition compileError = do
       a' <-
         liftCompilationState $ inferArgumentType state compileError (typeOf v) a
       let argDeclarations = declarationsFromTypedArgument a'
-      b' <- inferType (addDeclarations state argDeclarations) b exprPosition
+      b' <- inferType (addLocals state argDeclarations) b exprPosition
       return (a', b')
     allBranchesHaveSameType ::
          TypedExpression
@@ -708,7 +718,10 @@ inferType state expr exprPosition =
     Language.Float f -> return $ TypeChecker.Float f
     Language.String' s -> return $ TypeChecker.String' s
     Language.BetweenParens expr -> inferType state expr exprPosition
-    Language.Identifier name -> inferIdentifierType state name compileError
+    Language.Identifier name ->
+      inferIdentifierType state name functionType compileError
+      where
+        functionType = Standard
     Language.Apply a b ->
       inferApplicationType state a b exprPosition compileError
     Language.Infix op a b ->
@@ -761,7 +774,7 @@ inferArgumentType state err valueType arg =
             (\(a, t) -> inferArgumentType state err t a) <$> zip args fields
        in case matchingConstructor of
             Just (TypedConstructor ctSymbol@(Symbol _ name) tag fields) -> do
-              symbol <- BindingSymbol <$> getSymbol name
+              symbol <- getSymbol name
               if length args == length fields
                 then TADeconstruction symbol (ConstructorSymbol ctSymbol) tag <$>
                      deconstructionFields fields
@@ -787,12 +800,17 @@ inferDeclarationType ::
   -> CompilationSymbols (NE.NonEmpty Type)
 inferDeclarationType state declaration lineInformation =
   case annotation of
-    Just (Annotation _ types) -> sequence $ annotationTypeToType <$> types
+    Just (Annotation _ types) -> annotationStructureToTypes types
     Nothing -> throwError $ compileError "For now, annotations are required."
   where
     (Declaration annotation _ _ _) = declaration
     compileError :: Text -> CompileError
     compileError = CompileError (DeclarationError declaration) lineInformation
+    annotationStructureToTypes :: AnnotationStructure -> CompilationSymbols (NE.NonEmpty Type)
+    annotationStructureToTypes (AReturn aType) = pure <$> annotationTypeToType aType
+    annotationStructureToTypes (ALambda _ aType innerStructure) =
+      NE.cons <$> annotationTypeToType aType <*> annotationStructureToTypes innerStructure
+
     annotationTypeToType :: AnnotationType -> CompilationSymbols Type
     annotationTypeToType t =
       case t of
@@ -816,9 +834,9 @@ inferDeclarationType state declaration lineInformation =
               Applied <$> reduceTypes a' <*> annotationTypeToType b
             TypeApplication a' b' ->
               Applied <$> inferTypeApplication a' b' <*> annotationTypeToType b
-    reduceTypes :: NE.NonEmpty AnnotationType -> CompilationSymbols Type
-    reduceTypes types =
-      collapseTypes <$> sequence (annotationTypeToType <$> types)
+    reduceTypes :: AnnotationStructure -> CompilationSymbols Type
+    reduceTypes (AReturn aType) = annotationTypeToType aType
+    reduceTypes (ALambda _ aType as) = Lambda <$> (annotationTypeToType aType) <*> (reduceTypes as)
 
 collapseTypes :: NE.NonEmpty Type -> Type
 collapseTypes = foldr1 Lambda

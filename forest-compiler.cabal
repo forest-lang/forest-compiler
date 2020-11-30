@@ -20,6 +20,7 @@ library
                      , Wasm
                      , Compiler
                      , Language
+                     , MemoryManagement
                      , TypeChecker
   build-depends:       base >= 4.7 && < 5
                      , megaparsec

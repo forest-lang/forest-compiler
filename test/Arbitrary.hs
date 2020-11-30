@@ -57,6 +57,14 @@ instance Arbitrary AnnotationType where
   arbitrary = genAnnotationType
   shrink = genericShrink
 
+instance Arbitrary FunctionType where
+  arbitrary = genFunctionType
+  shrink = genericShrink
+
+instance Arbitrary AnnotationStructure where
+  arbitrary = genAnnotationStructure
+  shrink = genericShrink
+
 instance Arbitrary Ident where
   arbitrary = genIdent
   shrink (Ident s) = Ident <$> filter permittedWord (shrink s)
@@ -184,14 +192,25 @@ genDeclaration = do
 genAnnotation :: Gen Annotation
 genAnnotation = do
   name <- genIdent
-  types <- genNonEmpty genAnnotationType
+  types <- genAnnotationStructure
   return $ Annotation name types
+
+genFunctionType :: Gen FunctionType
+genFunctionType = oneof [pure Standard, pure Linear]
+
+genAnnotationStructure :: Gen AnnotationStructure
+genAnnotationStructure =
+  frequency
+    [ (50, AReturn <$> genAnnotationType)
+    , (1, ALambda Standard <$> genAnnotationType <*> genAnnotationStructure)
+    , (1, ALambda Linear <$> genAnnotationType <*> genAnnotationStructure)
+    ]
 
 genAnnotationType :: Gen AnnotationType
 genAnnotationType =
   frequency
     [ (100, Concrete <$> genIdent)
-    , (1, Parenthesized <$> genNonEmpty genAnnotationType)
+    , (1, Parenthesized <$> genAnnotationStructure)
     ]
 
 genMaybe :: Gen a -> Gen (Maybe a)

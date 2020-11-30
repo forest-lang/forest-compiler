@@ -17,8 +17,8 @@ getX (Vector2 x y) = x
 getY :: Vector2 -> Float
 getY (Vector2 x y) = y
 
-update :: State -> Input -> State
-update (State (Vector2 x y) (Vector2 vx vy)) input =
+update :: Input -> State ~> State
+update input (State (Vector2 x y) (Vector2 vx vy)) =
   let
     accel :: Float
     accel = 0.1

@@ -9,6 +9,8 @@ module Language
   , Declaration(..)
   , Annotation(..)
   , AnnotationType(..)
+  , FunctionType(..)
+  , AnnotationStructure(..)
   , Module(..)
   , Constructor(..)
   , ConstructorType(..)
@@ -49,13 +51,20 @@ data Declaration =
   deriving (Show, Eq, G.Generic, Ord)
 
 data Annotation =
-  Annotation Ident
-             (NonEmpty AnnotationType)
+  Annotation Ident AnnotationStructure
+  deriving (Show, Eq, G.Generic, Ord)
+
+data FunctionType = Standard | Linear
+  deriving (Show, Eq, G.Generic, Ord)
+
+data AnnotationStructure
+  = AReturn AnnotationType
+  | ALambda FunctionType AnnotationType AnnotationStructure
   deriving (Show, Eq, G.Generic, Ord)
 
 data AnnotationType
   = Concrete Ident
-  | Parenthesized (NonEmpty AnnotationType)
+  | Parenthesized AnnotationStructure
   | TypeApplication AnnotationType
                     AnnotationType
   deriving (Show, Eq, G.Generic, Ord)

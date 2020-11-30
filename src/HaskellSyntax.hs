@@ -1,4 +1,3 @@
-
 {-# LANGUAGE OverloadedStrings #-}
 
 module HaskellSyntax
@@ -25,23 +24,24 @@ module HaskellSyntax
 import Language
 
 import Control.Monad (void)
-import Data.Functor.Identity ()
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Lazy
-import Data.Map (Map)
+import Data.Functor.Identity ()
 import Data.Functor.Identity
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
+import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Semigroup
 import Data.Text (Text, intercalate)
 import qualified Data.Text as Text
 import Data.Void (Void)
 
+import Control.Monad.Combinators.Expr
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
-import Control.Monad.Combinators.Expr
+
 showT :: Show a => a -> Text
 showT = Text.pack . show
 
@@ -56,11 +56,13 @@ data LineInformation = LineInformation
   , topLevels :: Map TopLevel SourceRange
   } deriving (Show, Eq)
 
-setTopLevelPosition :: TopLevel -> SourceRange -> LineInformation -> LineInformation
+setTopLevelPosition ::
+     TopLevel -> SourceRange -> LineInformation -> LineInformation
 setTopLevelPosition tl pos (LineInformation expressions topLevels) =
   LineInformation expressions (Map.insert tl pos topLevels)
 
-setExpressionPosition :: Expression -> SourceRange -> LineInformation -> LineInformation
+setExpressionPosition ::
+     Expression -> SourceRange -> LineInformation -> LineInformation
 setExpressionPosition expression pos (LineInformation expressions topLevels) =
   LineInformation (Map.insert expression pos expressions) topLevels
 
@@ -151,7 +153,10 @@ float =
       fromIntegral integer +
       (fromIntegral fractional / 10) * signumNoZero (fromIntegral integer)
 
-signumNoZero :: Num a => Eq a => a -> a
+signumNoZero ::
+     Num a
+  => Eq a =>
+       a -> a
 signumNoZero 0 = 1
 signumNoZero n = signum n
 
@@ -270,10 +275,14 @@ annotation = Annotation <$> pIdent <*> types
   where
     types = whiteSpace *> symbol "::" *> whiteSpace *> annotationTypes
 
-annotationTypes :: Parser (NE.NonEmpty AnnotationType)
-annotationTypes =
-  (:|) <$> pType <*> many (whiteSpace *> symbol "->" *> pType) <*
-  whiteSpaceWithNewlines
+annotationTypes :: Parser AnnotationStructure
+annotationTypes = do
+  val <- pType
+  ((try $
+    ALambda Standard val <$> (whiteSpace *> symbol "->" *> annotationTypes)) <|>
+   (try $ ALambda Linear val <$> (whiteSpace *> symbol "~>" *> annotationTypes)) <|>
+   (pure $ AReturn val)) <*
+    whiteSpaceWithNewlines
 
 pType :: Parser AnnotationType
 pType = do
@@ -286,13 +295,16 @@ pType = do
       [x] -> x
       xs -> foldl1 TypeApplication xs
 
-parseModuleWithLineInformation :: Text -> Either ParseError' (Module, LineInformation)
-parseModuleWithLineInformation = parse (runStateT pModule (LineInformation Map.empty Map.empty)) ""
+parseModuleWithLineInformation ::
+     Text -> Either ParseError' (Module, LineInformation)
+parseModuleWithLineInformation =
+  parse (runStateT pModule (LineInformation Map.empty Map.empty)) ""
   where
     pModule = Module <$> many topLevelDeclaration <* eof
 
 parseModule :: Text -> Either ParseError' Module
-parseModule = parse (evalStateT pModule (LineInformation Map.empty Map.empty)) ""
+parseModule =
+  parse (evalStateT pModule (LineInformation Map.empty Map.empty)) ""
   where
     pModule = Module <$> many topLevelDeclaration <* eof
 
@@ -335,7 +347,11 @@ printAnnotation :: Annotation -> Text
 printAnnotation (Annotation name types) =
   s name <> " :: " <> printTypes types <> "\n"
   where
-    printTypes types' = intercalate " -> " (NE.toList (printType <$> types'))
+    printTypes annotationStructure =
+      case annotationStructure of
+        AReturn t -> printType t
+        ALambda Standard t s -> printType t <> " -> " <> printTypes s
+        ALambda Linear t s -> printType t <> " ~> " <> printTypes s
     printType annotationType =
       case annotationType of
         Concrete identifier -> s identifier
@@ -419,8 +435,7 @@ isComplex expr' =
 
 indent :: Int -> Text -> Text
 indent level string =
-  intercalate "\n" $
-  (Text.replicate level " " <>) <$> Text.lines string
+  intercalate "\n" $ (Text.replicate level " " <>) <$> Text.lines string
 
 indent2 :: Text -> Text
 indent2 = indent 2

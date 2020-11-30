@@ -3,7 +3,7 @@ main :: Int
 main =
   let
     a :: Int
-    a = 5
+    a = 10
 
     calc :: Int -> Int
     calc n = n + a
