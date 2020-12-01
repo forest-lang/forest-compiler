@@ -26,5 +26,5 @@ main = do
     typeCheckerSpecs
     vSampleSpecs
     iSampleSpecs
-    wasmSpecs
+    --wasmSpecs
     haskellSyntaxSpecs

@@ -4,17 +4,3 @@ data Value
 
 update :: Int -> Value ~> Value
 update n (Value i) = Value (i + n)
-
-
-# I kinda just want to lazy generate adt functions structurally, since they're identical
-
-Declaration "Value" (Arg Standard Int (Return Value))
-Declaration "Value" (Arg Linear Int (Return Value))
-
-ADT "Value" [Constructor "Value" (Return Int)]
-
-Declaration "update" (Arg (Bind 2 "n") Standard Int (Arg (Deconstruct ...) Linear (Type 1 "Value") (Return (Type 1 "Value"))))
-[ Deconstruct ...
-, Call Linear (Add (Bind 3 "i") (Bind 2 "n"))
-]
-

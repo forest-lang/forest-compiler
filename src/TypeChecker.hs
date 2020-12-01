@@ -694,7 +694,7 @@ inferLetType state declarations' value exprPosition _ =
             let concatBranchTypes t = (:) t <$> branchTypes (typed ++ [t]) xs
                 inferBranchType =
                   checkDeclaration
-                    (markClosureBoundary (addDeclarations state typed))
+                    (markClosureBoundary (addLocals state typed))
                     x
                     Nothing
                     exprPosition
@@ -704,7 +704,7 @@ inferLetType state declarations' value exprPosition _ =
       expression :: [TypedDeclaration] -> DeclarationCompilation TypedExpression
       expression b =
         (TypeChecker.Let (NE.fromList b) <$>
-         inferType (addDeclarations state b) value exprPosition)
+         inferType (addLocals state b) value exprPosition)
    in types >>= expression
 
 inferType ::

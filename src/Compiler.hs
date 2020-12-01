@@ -32,7 +32,7 @@ typeCheck code =
         Right typedModule -> Success typedModule
 
 compile :: Text -> Result Text
-compile code = printWasm . forestModuleToWasm <$> typeCheck code
+compile code = printWasm . forestModuleToWasm <$> MemoryManagement.compile <$> typeCheck code
 
 format :: Text -> Either ParseError' Text
 format s = printModule <$> parseModule s
