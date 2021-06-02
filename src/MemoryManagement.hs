@@ -37,6 +37,7 @@ data Module =
 data Declaration =
   Declaration T.Symbol
               [Arg]
+              [Arg]
               Type
               (NonEmpty Statement)
   deriving (Eq, Show)
@@ -113,12 +114,12 @@ data FunctionLevel
 
 compileDeclaration :: FunctionLevel -> T.TypedDeclaration -> Declaration
 compileDeclaration functionLevel (T.TypedDeclaration name args closureBindings t typedExpression) =
-  Declaration name fullArgs returnType statements
+  Declaration name argsFromClosureBindings (mapMaybe compileArg args) returnType statements
   where
-    fullArgs =
+    argsFromClosureBindings =
       case functionLevel of
-        TopLevel -> (mapMaybe compileArg args)
-        Inline -> (closureArgs closureBindings) <> (mapMaybe compileArg args)
+        TopLevel -> []
+        Inline -> (closureArgs closureBindings)
     statements = NE.fromList (deconstructions <> NE.toList body)
     deconstructions = Deconstruct <$> concatMap compileDeconstruction args
     body = compileExpression typedExpression

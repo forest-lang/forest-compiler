@@ -205,7 +205,7 @@ getAddress = gets bytesAllocated
 addTopLevel :: [TopLevel] -> CompileState ()
 addTopLevel newTopLevel = modify transform
   where
-    transform (Module topLevel bytes) = Module (topLevel <> newTopLevel) bytes
+    transform (Module topLevel bytes) = Module (newTopLevel <> topLevel) bytes
 
 allocateBytes :: Int -> CompileState ()
 allocateBytes i = modify transform
@@ -213,7 +213,7 @@ allocateBytes i = modify transform
     transform (Module topLevel bytes) = Module topLevel (bytes + i)
 
 compileDeclaration :: M.Declaration -> CompileState ()
-compileDeclaration (M.Declaration name args fType statements) = do
+compileDeclaration (M.Declaration name closureArgs args fType statements) = do
   let expressions = compileStatements statements
   expr' <- evalStateT expressions (UniqueLocals Map.empty)
   let func =
@@ -225,7 +225,7 @@ compileDeclaration (M.Declaration name args fType statements) = do
           (Block wasmType $ NE.fromList (expr'))
   addTopLevel [func]
   where
-    parameters = mArgType <$> args
+    parameters = mArgType <$> (closureArgs <> args)
     wasmType = typeCast fType
 
 typeCast :: M.Type -> WasmType
@@ -269,7 +269,7 @@ compileStatements statements =
   concat <$> (sequence $ compileStatement <$> statements)
 
 localDeclaration :: M.Declaration -> DeclarationCompileState [Expression]
-localDeclaration d@(M.Declaration symbol args returnType statements) =
+localDeclaration d@(M.Declaration symbol _ args returnType statements) =
   case args of
     [] -> do
       statements <- compileStatements statements
